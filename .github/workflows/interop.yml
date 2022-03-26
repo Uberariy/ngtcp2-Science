@@ -3,7 +3,7 @@ name: interop
 on:
   push:
     branches:
-    - main
+    - v2-interop
 
 jobs:
   build:
@@ -26,4 +26,4 @@ jobs:
         context: interop
         file: interop/Dockerfile
         push: true
-        tags: ghcr.io/ngtcp2/ngtcp2-interop:latest
+        tags: ghcr.io/ngtcp2/ngtcp2-interop:v2-interop
