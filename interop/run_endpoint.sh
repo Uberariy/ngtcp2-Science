@@ -42,7 +42,7 @@ if [ "$ROLE" == "client" ]; then
 	CLIENT_ARGS="$CLIENT_ARGS --delay-stream 10ms --key-update 1ms"
     fi
     if [ "$TESTCASE" == "v2" ]; then
-	CLIENT_ARGS="$CLIENT_ARGS --other-versions v2draft"
+	CLIENT_ARGS="$CLIENT_ARGS --other-versions v2draft,v1"
     fi
     if [ "$TESTCASE" == "resumption" ] || [ "$TESTCASE" == "zerortt" ]; then
 	CLIENT_ARGS="$CLIENT_ARGS --session-file session.txt --tp-file tp.txt"
