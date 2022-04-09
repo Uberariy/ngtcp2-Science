@@ -1332,10 +1332,10 @@ static void bbr_handle_recovery(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
   }
 }
 
-static void bbr2_cc_init(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
-                         ngtcp2_rst *rst, ngtcp2_tstamp initial_ts,
-                         ngtcp2_rand rand, const ngtcp2_rand_ctx *rand_ctx,
-                         ngtcp2_log *log) {
+static void bbrfrcst_cc_init(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
+                             ngtcp2_rst *rst, ngtcp2_tstamp initial_ts,
+                             ngtcp2_rand rand, const ngtcp2_rand_ctx *rand_ctx,
+                             ngtcp2_log *log) {
   bbr->ccb.log = log;
   bbr->rst = rst;
   bbr->rand = rand;
@@ -1345,7 +1345,7 @@ static void bbr2_cc_init(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
   bbr_on_init(bbr, cstat, initial_ts);
 }
 
-static void bbr2_cc_free(ngtcp2_bbr2_cc *bbr) { (void)bbr; }
+static void bbrfrcst_cc_free(ngtcp2_bbr2_cc *bbr) { (void)bbr; }
 
 static void bbr2_cc_on_pkt_acked(ngtcp2_cc *ccx, ngtcp2_conn_stat *cstat,
                                  const ngtcp2_cc_pkt *pkt, ngtcp2_tstamp ts) {
@@ -1449,7 +1449,7 @@ static void bbr2_cc_event(ngtcp2_cc *ccx, ngtcp2_conn_stat *cstat,
   (void)ts;
 }
 
-int ngtcp2_cc_bbr2_cc_init(ngtcp2_cc *cc, ngtcp2_log *log,
+int ngtcp2_cc_bbrfrcst_cc_init(ngtcp2_cc *cc, ngtcp2_log *log,
                            ngtcp2_conn_stat *cstat, ngtcp2_rst *rst,
                            ngtcp2_tstamp initial_ts, ngtcp2_rand rand,
                            const ngtcp2_rand_ctx *rand_ctx,
@@ -1461,7 +1461,7 @@ int ngtcp2_cc_bbr2_cc_init(ngtcp2_cc *cc, ngtcp2_log *log,
     return NGTCP2_ERR_NOMEM;
   }
 
-  bbr2_cc_init(bbr, cstat, rst, initial_ts, rand, rand_ctx, log);
+  bbrfrcst_cc_init(bbr, cstat, rst, initial_ts, rand, rand_ctx, log);
 
   cc->ccb = &bbr->ccb;
   cc->on_pkt_acked = bbr2_cc_on_pkt_acked;
@@ -1478,9 +1478,9 @@ int ngtcp2_cc_bbr2_cc_init(ngtcp2_cc *cc, ngtcp2_log *log,
   return 0;
 }
 
-void ngtcp2_cc_bbr2_cc_free(ngtcp2_cc *cc, const ngtcp2_mem *mem) {
+void ngtcp2_cc_bbrfrcst_cc_free(ngtcp2_cc *cc, const ngtcp2_mem *mem) {
   ngtcp2_bbr2_cc *bbr = ngtcp2_struct_of(cc->ccb, ngtcp2_bbr2_cc, ccb);
 
-  bbr2_cc_free(bbr);
+  bbrfrcst_cc_free(bbr);
   ngtcp2_mem_free(mem, bbr);
 }
