@@ -1308,6 +1308,7 @@ static void bbr_bound_cwnd_for_model(ngtcp2_bbr2_cc *bbr,
       bbr->state != NGTCP2_BBR2_STATE_PROBE_BW_CRUISE) {
     cap = bbr->inflight_hi;
   } else if (bbr->state == NGTCP2_BBR2_STATE_PROBE_RTT ||
+             bbr->state == NGTCP2_BBRFRCST_STATE_FRCST ||
              bbr->state == NGTCP2_BBR2_STATE_PROBE_BW_CRUISE) {
     cap = bbr_inflight_with_headroom(bbr, cstat);
   }
