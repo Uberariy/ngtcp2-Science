@@ -1294,9 +1294,11 @@ static void bbr_set_cwnd(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
     cstat->cwnd = ngtcp2_max(cstat->cwnd, mpcwnd);
   }
 
+  fprintf(stderr, "Curr cwnd 0: %ld", cstat->cwnd);
   bbr_bound_cwnd_for_forecast(bbr, cstat);
   bbr_bound_cwnd_for_probe_rtt(bbr, cstat);
   bbr_bound_cwnd_for_model(bbr, cstat);
+  fprintf(stderr, "Curr cwnd 1: %ld", cstat->cwnd);
 }
 
 static void bbr_bound_cwnd_for_model(ngtcp2_bbr2_cc *bbr,
