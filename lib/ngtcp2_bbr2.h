@@ -44,6 +44,7 @@ typedef enum ngtcp2_bbr2_state {
   NGTCP2_BBR2_STATE_PROBE_BW_REFILL,
   NGTCP2_BBR2_STATE_PROBE_BW_UP,
   NGTCP2_BBR2_STATE_PROBE_RTT,
+  NGTCP2_BBRFRCST_STATE_FRCST,
 } ngtcp2_bbr2_state;
 
 typedef enum ngtcp2_bbr2_ack_phase {

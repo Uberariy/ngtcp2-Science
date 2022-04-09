@@ -85,6 +85,11 @@ static void bbr_enter_startup(ngtcp2_bbr2_cc *bbr);
 static void bbr_check_startup_done(ngtcp2_bbr2_cc *bbr,
                                    const ngtcp2_cc_ack *ack);
 
+static void bbr_enter_forecast(ngtcp2_bbr2_cc *bbr);
+
+static void bbr_check_forecast_done(ngtcp2_bbr2_cc *bbr,
+                                    const ngtcp2_cc_ack *ack);
+
 static void bbr_update_on_ack(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
                               const ngtcp2_cc_ack *ack, ngtcp2_tstamp ts);
 
@@ -293,7 +298,8 @@ static void bbr_on_init(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
   bbr_init_round_counting(bbr);
   bbr_init_full_pipe(bbr);
   bbr_init_pacing_rate(bbr, cstat);
-  bbr_enter_startup(bbr);
+  //bbr_enter_startup(bbr); // TODO: enter FORECAST and give it parameters
+  bbr_enter_forecast(bbr);
 
   cstat->send_quantum = cstat->max_udp_payload_size * 10;
 
@@ -444,6 +450,24 @@ static void bbr_check_startup_done(ngtcp2_bbr2_cc *bbr,
   }
 }
 
+static void bbr_enter_forecast(ngtcp2_bbr2_cc *bbr) {
+  ngtcp2_log_info(bbr->ccb.log, NGTCP2_LOG_EVENT_RCV, "bbr2 enter Forecast");
+
+  bbr->state = NGTCP2_BBRFRCST_STATE_FRCST;
+  bbr->pacing_gain = 1.0;
+  bbr->cwnd_gain = 2;
+} // uberariy
+
+static void bbr_check_forecast_done(ngtcp2_bbr2_cc *bbr,
+                                   const ngtcp2_cc_ack *ack) {
+  bbr_check_startup_full_bandwidth(bbr);
+  bbr_check_startup_high_loss(bbr, ack);
+
+  if (bbr->state == NGTCP2_BBRFRCST_STATE_FRCST && bbr->filled_pipe) {
+    bbr_enter_drain(bbr);
+  }
+} // uberariy
+
 static void bbr_on_transmit(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
                             ngtcp2_tstamp ts) {
   bbr_handle_restart_from_idle(bbr, cstat, ts);
@@ -462,6 +486,7 @@ static void bbr_update_model_and_state(ngtcp2_bbr2_cc *bbr,
   bbr_update_latest_delivery_signals(bbr, cstat);
   bbr_update_congestion_signals(bbr, cstat, ack);
   bbr_update_ack_aggregation(bbr, cstat, ack, ts);
+  bbr_check_forecast_done(bbr, ack);
   bbr_check_startup_done(bbr, ack);
   bbr_check_drain(bbr, cstat, ts);
   bbr_update_probe_bw_cycle_phase(bbr, cstat, ack, ts);
