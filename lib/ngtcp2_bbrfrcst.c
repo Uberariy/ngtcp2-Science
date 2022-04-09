@@ -455,7 +455,7 @@ static void bbr_enter_forecast(ngtcp2_bbr2_cc *bbr) {
 
   bbr->state = NGTCP2_BBRFRCST_STATE_FRCST;
   bbr->pacing_gain = 1.0;
-  bbr->cwnd_gain = 2;
+  bbr->cwnd_gain = 1;
 } // uberariy
 
 static void bbr_check_forecast_done(ngtcp2_bbr2_cc *bbr,
@@ -1265,6 +1265,15 @@ static void bbr_bound_cwnd_for_probe_rtt(ngtcp2_bbr2_cc *bbr,
   }
 }
 
+static void bbr_bound_cwnd_for_forecast(ngtcp2_bbr2_cc *bbr,
+                                        ngtcp2_conn_stat *cstat) {
+  uint64_t forecast_cwnd = bbr->initial_cwnd * 10;
+
+  if (bbr->state == NGTCP2_BBRFRCST_STATE_FRCST) {
+    cstat->cwnd = ngtcp2_min(cstat->cwnd, forecast_cwnd);
+  }
+}
+
 static void bbr_set_cwnd(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
                          const ngtcp2_cc_ack *ack) {
   uint64_t mpcwnd;
@@ -1285,6 +1294,7 @@ static void bbr_set_cwnd(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
     cstat->cwnd = ngtcp2_max(cstat->cwnd, mpcwnd);
   }
 
+  bbr_bound_cwnd_for_forecast(bbr, cstat);
   bbr_bound_cwnd_for_probe_rtt(bbr, cstat);
   bbr_bound_cwnd_for_model(bbr, cstat);
 }
