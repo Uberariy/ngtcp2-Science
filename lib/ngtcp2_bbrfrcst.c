@@ -25,6 +25,7 @@
 #include "ngtcp2_bbr2.h"
 
 #include <assert.h>
+#include <stdio.h>
 
 #include "ngtcp2_log.h"
 #include "ngtcp2_macro.h"
@@ -475,8 +476,10 @@ static void bbr_on_transmit(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
 
 static void bbr_update_on_ack(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
                               const ngtcp2_cc_ack *ack, ngtcp2_tstamp ts) {
+  fprint(stderr, "Before update on ack: cwnd %ld, cwnd_gain %ld, pacing_rate %ld, pacing_gain %ld\n", cstat->cwnd, bbr->cwnd_gain, cstat->pacing_rate, bbr->pacing_gain);
   bbr_update_model_and_state(bbr, cstat, ack, ts);
   bbr_update_control_parameters(bbr, cstat, ack);
+  fprint(stderr, "Apres update on ack: cwnd %ld, cwnd_gain %ld, pacing_rate %ld, pacing_gain %ld\n", cstat->cwnd, bbr->cwnd_gain, cstat->pacing_rate, bbr->pacing_gain);
 }
 
 static void bbr_update_model_and_state(ngtcp2_bbr2_cc *bbr,
@@ -1267,7 +1270,7 @@ static void bbr_bound_cwnd_for_probe_rtt(ngtcp2_bbr2_cc *bbr,
 
 static void bbr_bound_cwnd_for_forecast(ngtcp2_bbr2_cc *bbr,
                                         ngtcp2_conn_stat *cstat) {
-  uint64_t forecast_cwnd = bbr->initial_cwnd * 10;
+  uint64_t forecast_cwnd = 5000;
 
   if (bbr->state == NGTCP2_BBRFRCST_STATE_FRCST) {
     cstat->cwnd = ngtcp2_min(cstat->cwnd, forecast_cwnd);
