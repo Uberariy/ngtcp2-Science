@@ -1276,7 +1276,7 @@ static void bbr_bound_cwnd_for_probe_rtt(ngtcp2_bbr2_cc *bbr,
 
 static void bbr_bound_cwnd_for_forecast(ngtcp2_bbr2_cc *bbr,
                                         ngtcp2_conn_stat *cstat) {
-  uint64_t forecast_cwnd = 5000;
+  uint64_t forecast_cwnd = 400000;
 
   if (bbr->state == NGTCP2_BBRFRCST_STATE_FRCST) {
     cstat->cwnd = ngtcp2_min(cstat->cwnd, forecast_cwnd);
