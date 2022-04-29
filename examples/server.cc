@@ -31,6 +31,7 @@
 #include <memory>
 #include <fstream>
 #include <iomanip>
+#include <string>
 
 #include <unistd.h>
 #include <getopt.h>
@@ -3638,17 +3639,18 @@ int main(int argc, char **argv) {
       }
       case 30: {
         // --bbrfrcst-params
-        string substr;
-        getline(optarg, substr, ',');
+        std::stringstream ss(optarg);
+        std::string substr;
+        getline(ss, substr, ',');
         if (auto t = util::parse_duration(substr); !t) {
           std::cerr << "--bbrfrcst-params rtt: invalid argument" << std::endl;
           exit(EXIT_FAILURE);
         } else {
           config.frcst_rtt = *t;
         }
-        getline(optarg, substr, ',');
-        config.frcst_loss = strtod(substr, nullptr);
-        getline(optarg, substr, ',');
+        getline(ss, substr, ',');
+        config.frcst_loss = std::stod(substr);
+        getline(ss, substr);
         if (auto n = util::parse_uint_iec(substr); !n) {
           std::cerr << "--bbrfrcst-params bw: invalid argument" << std::endl;
           exit(EXIT_FAILURE);
