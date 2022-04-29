@@ -1062,6 +1062,7 @@ static void bbr_update_min_rtt(ngtcp2_bbr2_cc *bbr, const ngtcp2_cc_ack *ack,
 static void bbr_check_probe_rtt(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
                                 ngtcp2_tstamp ts) {
   if (bbr->state != NGTCP2_BBR2_STATE_PROBE_RTT && bbr->probe_rtt_expired &&
+      bbr->state != NGTCP2_BBRFRCST_STATE_FRCST &&
       !bbr->idle_restart) {
     bbr_enter_probe_rtt(bbr);
     bbr_save_cwnd(bbr, cstat);
