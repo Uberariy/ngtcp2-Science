@@ -1333,10 +1333,17 @@ static void bbr_bound_cwnd_for_model(ngtcp2_bbr2_cc *bbr,
 }
 
 static void bbr_set_send_quantum(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat) {
-  uint64_t send_quantum =
-      (uint64_t)(cstat->pacing_rate * (double)(bbr->min_rtt == UINT64_MAX
-                                                   ? NGTCP2_MILLISECONDS
-                                                   : bbr->min_rtt));
+  // Motivation: We can't evaluate min rtt in forecast
+  if (bbr->state == NGTCP2_BBRFRCST_STATE_FRCST)
+    uint64_t send_quantum =
+        (uint64_t)(cstat->pacing_rate * (double)(bbr->min_rtt == UINT64_MAX
+                                                    ? NGTCP2_MILLISECONDS
+                                                    : 20));
+  else
+    uint64_t send_quantum =
+        (uint64_t)(cstat->pacing_rate * (double)(bbr->min_rtt == UINT64_MAX
+                                                    ? NGTCP2_MILLISECONDS
+                                                    : bbr->min_rtt));
   (void)bbr;
   fprintf(stderr, "Uberariy: Set send quantum: %ld\n", cstat->send_quantum);
 
