@@ -25,6 +25,7 @@
 #include "ngtcp2_bbr2.h"
 
 #include <assert.h>
+#include <stdio.h>
 
 #include "ngtcp2_log.h"
 #include "ngtcp2_macro.h"
@@ -1290,7 +1291,7 @@ static void bbr_set_send_quantum(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat) {
                                                    : bbr->min_rtt));
   (void)bbr;
 
-  fprintf(stderr, "Uberariy: Set send quantum: %f\n", cstat->send_quantum);
+  fprintf(stderr, "Uberariy: Set send quantum: %ld\n", cstat->send_quantum);
 
   cstat->send_quantum = ngtcp2_min(send_quantum, 64 * 1024);
   cstat->send_quantum =
