@@ -1279,7 +1279,7 @@ static void bbr_bound_cwnd_for_forecast(ngtcp2_bbr2_cc *bbr,
   uint64_t forecast_cwnd = 400000;
 
   if (bbr->state == NGTCP2_BBRFRCST_STATE_FRCST) {
-    cstat->cwnd = ngtcp2_min(cstat->cwnd, forecast_cwnd);
+    cstat->cwnd = ngtcp2_max(cstat->cwnd, forecast_cwnd);
   }
 }
 
