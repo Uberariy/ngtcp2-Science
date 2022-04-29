@@ -3638,15 +3638,18 @@ int main(int argc, char **argv) {
       }
       case 30: {
         // --bbrfrcst-params
-        auto l = util::split_str(optarg);
-        if (auto t = util::parse_duration(l[0]); !t) {
+        string substr;
+        getline(optarg, substr, ',');
+        if (auto t = util::parse_duration(substr); !t) {
           std::cerr << "--bbrfrcst-params rtt: invalid argument" << std::endl;
           exit(EXIT_FAILURE);
         } else {
           config.frcst_rtt = *t;
         }
-        config.frcst_loss = strtod(l[1], nullptr);
-        if (auto n = util::parse_uint_iec(l[2]); !n) {
+        getline(optarg, substr, ',');
+        config.frcst_loss = strtod(substr, nullptr);
+        getline(optarg, substr, ',');
+        if (auto n = util::parse_uint_iec(substr); !n) {
           std::cerr << "--bbrfrcst-params bw: invalid argument" << std::endl;
           exit(EXIT_FAILURE);
         } else {
