@@ -471,7 +471,8 @@ static void bbr_check_forecast_done(ngtcp2_bbr2_cc *bbr,
   bbr_check_startup_high_loss(bbr, ack);
 
   if (bbr->state == NGTCP2_BBRFRCST_STATE_FRCST && bbr->filled_pipe) {
-    bbr_enter_drain(bbr);
+    ;
+    //bbr_enter_drain(bbr);
   }
 } // uberariy
 
