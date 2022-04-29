@@ -421,8 +421,8 @@ static void bbr_init_pacing_rate(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat) {
 static void bbr_set_pacing_rate_with_gain(ngtcp2_bbr2_cc *bbr,
                                           ngtcp2_conn_stat *cstat,
                                           double pacing_gain) {
-  double rate
-  if (bbr.state == NGTCP2_BBRFRCST_STATE_FRCST) {
+  double rate;
+  if (bbr->state == NGTCP2_BBRFRCST_STATE_FRCST) {
     rate = (double)20000000 *
                 (100 - NGTCP2_BBR_PACING_MARGIN_PERCENT) / 100 / NGTCP2_SECONDS;
   } else {
