@@ -421,8 +421,14 @@ static void bbr_init_pacing_rate(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat) {
 static void bbr_set_pacing_rate_with_gain(ngtcp2_bbr2_cc *bbr,
                                           ngtcp2_conn_stat *cstat,
                                           double pacing_gain) {
-  double rate = pacing_gain * (double)bbr->bw *
+  double rate
+  if (bbr.state == NGTCP2_BBRFRCST_STATE_FRCST) {
+    rate = (double)20000000 *
                 (100 - NGTCP2_BBR_PACING_MARGIN_PERCENT) / 100 / NGTCP2_SECONDS;
+  } else {
+    rate = pacing_gain * (double)bbr->bw *
+                (100 - NGTCP2_BBR_PACING_MARGIN_PERCENT) / 100 / NGTCP2_SECONDS;
+  }
 
   if (bbr->filled_pipe || rate > cstat->pacing_rate) {
     cstat->pacing_rate = rate;
@@ -479,7 +485,7 @@ static void bbr_update_on_ack(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
   fprintf(stderr, "Before update on ack: cwnd %ld, cwnd_gain %f, pacing_rate %f, pacing_gain %f\n", cstat->cwnd, bbr->cwnd_gain, cstat->pacing_rate, bbr->pacing_gain);
   bbr_update_model_and_state(bbr, cstat, ack, ts);
   bbr_update_control_parameters(bbr, cstat, ack);
-  fprintf(stderr, "Apres update on ack: cwnd %ld, cwnd_gain %f, pacing_rate %f, pacing_gain %f\n", cstat->cwnd, bbr->cwnd_gain, cstat->pacing_rate, bbr->pacing_gain);
+  fprintf(stderr, "Apres update on ack:  cwnd %ld, cwnd_gain %f, pacing_rate %f, pacing_gain %f\n", cstat->cwnd, bbr->cwnd_gain, cstat->pacing_rate, bbr->pacing_gain);
 }
 
 static void bbr_update_model_and_state(ngtcp2_bbr2_cc *bbr,
@@ -1297,11 +1303,11 @@ static void bbr_set_cwnd(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
     cstat->cwnd = ngtcp2_max(cstat->cwnd, mpcwnd);
   }
 
-  fprintf(stderr, "Curr cwnd 0: %ld", cstat->cwnd);
+  fprintf(stderr, "Curr cwnd 0: %ld ", cstat->cwnd);
   bbr_bound_cwnd_for_forecast(bbr, cstat);
   bbr_bound_cwnd_for_probe_rtt(bbr, cstat);
   bbr_bound_cwnd_for_model(bbr, cstat);
-  fprintf(stderr, "Curr cwnd 1: %ld", cstat->cwnd);
+  fprintf(stderr, "Curr cwnd 1: %ld\n", cstat->cwnd);
 }
 
 static void bbr_bound_cwnd_for_model(ngtcp2_bbr2_cc *bbr,
