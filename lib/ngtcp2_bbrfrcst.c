@@ -425,13 +425,13 @@ static void bbr_set_pacing_rate_with_gain(ngtcp2_bbr2_cc *bbr,
   if (bbr->state == NGTCP2_BBRFRCST_STATE_FRCST) {
     rate = (double)20000000 *
                 (100 - NGTCP2_BBR_PACING_MARGIN_PERCENT) / 100 / NGTCP2_SECONDS;
+    cstat->pacing_rate = rate;
   } else {
     rate = pacing_gain * (double)bbr->bw *
                 (100 - NGTCP2_BBR_PACING_MARGIN_PERCENT) / 100 / NGTCP2_SECONDS;
-  }
-
-  if (bbr->filled_pipe || rate > cstat->pacing_rate) {
-    cstat->pacing_rate = rate;
+    if (bbr->filled_pipe || rate > cstat->pacing_rate) {
+      cstat->pacing_rate = rate;
+    }
   }
 }
 
