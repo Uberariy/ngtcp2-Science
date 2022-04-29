@@ -3113,6 +3113,9 @@ void config_set_default(Config &config) {
   config.initial_rtt = NGTCP2_DEFAULT_INITIAL_RTT;
   config.max_gso_dgrams = 10;
   config.handshake_timeout = NGTCP2_DEFAULT_HANDSHAKE_TIMEOUT;
+  config.frcst_rtt = 0;
+  config.frcst_loss = 0;
+  config.frcst_bw = 0;
 }
 } // namespace
 
@@ -3267,6 +3270,8 @@ Options:
               draft.
   --no-pmtud  Disables Path MTU Discovery.
   -h, --help  Display this help and exit.
+  --bbrfrcst-params=<DURATION>,<P>,<SIZE>
+              Parameters: RTT, Loss, Bandwidth for BBRForecast cc algo.
 
 ---
 
@@ -3325,6 +3330,7 @@ int main(int argc, char **argv) {
         {"preferred-versions", required_argument, &flag, 27},
         {"other-versions", required_argument, &flag, 28},
         {"no-pmtud", no_argument, &flag, 29},
+        {"bbrfrcst-params", required_argument, &flag, 30},
         {nullptr, 0, nullptr, 0}};
 
     auto optidx = 0;
@@ -3625,10 +3631,29 @@ int main(int argc, char **argv) {
         }
         break;
       }
-      case 29:
+      case 29: {
         // --no-pmtud
         config.no_pmtud = true;
         break;
+      }
+      case 30: {
+        // --bbrfrcst-params
+        auto l = util::split_str(optarg);
+        if (auto t = util::parse_duration(l[0]); !t) {
+          std::cerr << "--bbrfrcst-params rtt: invalid argument" << std::endl;
+          exit(EXIT_FAILURE);
+        } else {
+          config.frcst_rtt = *t;
+        }
+        config.frcst_loss = strtod(l[1], nullptr);
+        if (auto n = util::parse_uint_iec(l[2]); !n) {
+          std::cerr << "--bbrfrcst-params bw: invalid argument" << std::endl;
+          exit(EXIT_FAILURE);
+        } else {
+          config.frcst_bw = *n;
+        }
+        break;
+      }
       }
       break;
     default:

@@ -147,6 +147,9 @@ struct Config {
   std::vector<uint32_t> other_versions;
   // no_pmtud disables Path MTU Discovery.
   bool no_pmtud;
+  ngtcp2_duration frcst_rtt;
+  double frcst_loss;
+  uint64_t frcst_bw;
 };
 
 struct Buffer {

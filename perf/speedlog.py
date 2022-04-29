@@ -36,6 +36,7 @@ if __name__ == '__main__':
             d = byte_dict(filepath, parti, fnd)
             for i, j in d.items():
                 print(f"Second {i*parti/1000}-{(i+1)*parti/1000}: Bytes {fnd.split()[0].lower()}: {j}")
+            print(f"Mean speed {sum([j for i, j in d.items()])/len([j for i, j in d.items()])} per {parti/1000} seconds")
         elif sys.argv[2].upper() == "PCKT":
             d = pckt_dict(filepath, parti, fnd)
             for i, j in d.items():
