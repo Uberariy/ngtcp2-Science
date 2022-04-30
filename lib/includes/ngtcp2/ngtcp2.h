@@ -1499,6 +1499,12 @@ typedef struct ngtcp2_transport_params {
    * this field.
    */
   uint8_t version_info_present;
+  /**
+   * Forecast SLA parameters 
+   */
+  ngtcp2_duration frcst_rtt;
+  double frcst_loss;
+  uint64_t frcst_bw;
 } ngtcp2_transport_params;
 
 /**
@@ -1625,6 +1631,12 @@ typedef struct ngtcp2_conn_stat {
    * scheduled and transmitted together.
    */
   size_t send_quantum;
+  /**
+   * Forecast SLA prameters:
+   */
+  ngtcp2_duration frcst_rtt;
+  double frcst_loss;
+  uint64_t frcst_bw;
 } ngtcp2_conn_stat;
 
 /**

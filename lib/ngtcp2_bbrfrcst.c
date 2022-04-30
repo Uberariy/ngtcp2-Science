@@ -423,7 +423,8 @@ static void bbr_set_pacing_rate_with_gain(ngtcp2_bbr2_cc *bbr,
                                           double pacing_gain) {
   double rate;
   if (bbr->state == NGTCP2_BBRFRCST_STATE_FRCST) {
-    rate = (double)20000000 *
+    // pacing_gain equals 1 in FRCST state.
+    rate = (double)cstat->frcst_bw *
                 (100 - NGTCP2_BBR_PACING_MARGIN_PERCENT) / 100 / NGTCP2_SECONDS;
     cstat->pacing_rate = rate;
   } else {
@@ -1278,7 +1279,8 @@ static void bbr_bound_cwnd_for_probe_rtt(ngtcp2_bbr2_cc *bbr,
 
 static void bbr_bound_cwnd_for_forecast(ngtcp2_bbr2_cc *bbr,
                                         ngtcp2_conn_stat *cstat) {
-  uint64_t forecast_cwnd = 400000;
+  uint64_t forecast_cwnd = (double)cstat->frcst_bw * cstat->frcst_rtt;
+  fprintf(stderr, "Forecast cwnd: %ld\n", forecast_cwnd);
 
   if (bbr->state == NGTCP2_BBRFRCST_STATE_FRCST) {
     cstat->cwnd = forecast_cwnd;
@@ -1339,7 +1341,7 @@ static void bbr_set_send_quantum(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat) {
     send_quantum =
         (uint64_t)(cstat->pacing_rate * (double)(bbr->min_rtt == UINT64_MAX
                                                     ? NGTCP2_MILLISECONDS
-                                                    : 20));
+                                                    : cstat->frcst_rtt));
   else
     send_quantum =
         (uint64_t)(cstat->pacing_rate * (double)(bbr->min_rtt == UINT64_MAX

@@ -1436,6 +1436,11 @@ int Handler::init(const Endpoint &ep, const Address &local_addr,
   params.stateless_reset_token_present = 1;
   params.active_connection_id_limit = 7;
 
+  // Uberariy
+  params.frcst_rtt = config.frcst_rtt;
+  params.frcst_loss = config.frcst_loss;
+  params.frcst_rtt = config.frcst_rtt;
+
   if (ocid) {
     params.original_dcid = *ocid;
     params.retry_scid = *scid;

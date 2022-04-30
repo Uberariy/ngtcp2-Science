@@ -787,6 +787,9 @@ static void conn_reset_conn_stat_cc(ngtcp2_conn *conn,
   cstat->delivery_rate_sec = 0;
   cstat->pacing_rate = 0.0;
   cstat->send_quantum = SIZE_MAX;
+  cstat->frcst_rtt = 0;
+  cstat->frcst_loss = 0;
+  cstat->frcst_bw = 0;
 }
 
 /*
@@ -1063,6 +1066,10 @@ static int conn_new(ngtcp2_conn **pconn, const ngtcp2_cid *dcid,
   (*pconn)->cstat.initial_rtt = settings->initial_rtt;
   (*pconn)->cstat.max_udp_payload_size =
       (*pconn)->local.settings.max_udp_payload_size;
+
+  (*pconn)->cstat->frcst_rtt = params->frcst_rtt;
+  (*pconn)->cstat->frcst_loss = params->frcst_loss;
+  (*pconn)->cstat->frcst_bw = params->frcst_bw;
 
   ngtcp2_rst_init(&(*pconn)->rst);
 
