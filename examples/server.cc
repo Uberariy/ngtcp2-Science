@@ -1441,7 +1441,7 @@ int Handler::init(const Endpoint &ep, const Address &local_addr,
   params.frcst_rtt = config.frcst_rtt;
   params.frcst_loss = config.frcst_loss;
   params.frcst_bw = config.frcst_bw;
-  printf(stderr, "3 Initial parameters %ld %ld\n", params.frcst_bw, config.frcst_rtt);
+  fprintf(stderr, "3 Initial parameters %ld %ld\n", params.frcst_bw, config.frcst_rtt);
 
   if (ocid) {
     params.original_dcid = *ocid;
