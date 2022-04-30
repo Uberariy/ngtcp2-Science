@@ -1294,24 +1294,32 @@ static void bbr_set_cwnd(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
   bbr_update_max_inflight(bbr, cstat);
   bbr_modulate_cwnd_for_recovery(bbr, cstat, ack);
 
-  if (!bbr->packet_conservation) {
-    if (bbr->filled_pipe) {
-      if (bbr->state == NGTCP2_BBRFRCST_STATE_FRCST) {
+  if (bbr->state == NGTCP2_BBRFRCST_STATE_FRCST) {
+    if (!bbr->packet_conservation) {
+      if (bbr->filled_pipe) {
         cstat->cwnd = ngtcp2_min(cstat->cwnd, cstat->frcst_bw);
-      } else {
+      }
+      // } else if (cstat->cwnd < cstat->frcst_bw ||
+      //           bbr->rst->delivered < bbr->initial_cwnd) {
+      //   cstat->cwnd += ack->bytes_delivered;
+      // }
+    }
+  } else {
+    if (!bbr->packet_conservation) {
+      if (bbr->filled_pipe) {
         cstat->cwnd += ack->bytes_delivered;
         cstat->cwnd = ngtcp2_min(cstat->cwnd, bbr->max_inflight);
+      } else if (cstat->cwnd < bbr->max_inflight ||
+                bbr->rst->delivered < bbr->initial_cwnd) {
+        cstat->cwnd += ack->bytes_delivered;
       }
-    } else if (cstat->cwnd < bbr->max_inflight ||
-               bbr->rst->delivered < bbr->initial_cwnd) {
-      cstat->cwnd += ack->bytes_delivered;
     }
-
-    mpcwnd = min_pipe_cwnd(cstat->max_udp_payload_size);
-    cstat->cwnd = ngtcp2_max(cstat->cwnd, mpcwnd);
   }
 
-  fprintf(stderr, "Curr cwnd 0: %ld ", cstat->cwnd);
+  mpcwnd = min_pipe_cwnd(cstat->max_udp_payload_size);
+  cstat->cwnd = ngtcp2_max(cstat->cwnd, mpcwnd);
+
+  fprintf(stderr, "Curr cwnd 0: %ld\n", cstat->cwnd);
   bbr_bound_cwnd_for_forecast(bbr, cstat);
   bbr_bound_cwnd_for_probe_rtt(bbr, cstat);
   bbr_bound_cwnd_for_model(bbr, cstat);
@@ -1324,7 +1332,8 @@ static void bbr_bound_cwnd_for_model(ngtcp2_bbr2_cc *bbr,
   uint64_t mpcwnd = min_pipe_cwnd(cstat->max_udp_payload_size);
 
   if (bbr_is_in_probe_bw_state(bbr) &&
-      bbr->state != NGTCP2_BBR2_STATE_PROBE_BW_CRUISE) {
+      bbr->state != NGTCP2_BBR2_STATE_PROBE_BW_CRUISE &&
+      bbr->state != NGTCP2_BBRFRCST_STATE_FRCST) {
     cap = bbr->inflight_hi;
   } else if (bbr->state == NGTCP2_BBR2_STATE_PROBE_RTT ||
              bbr->state == NGTCP2_BBRFRCST_STATE_FRCST ||
