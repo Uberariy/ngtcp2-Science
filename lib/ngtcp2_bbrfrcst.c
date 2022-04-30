@@ -1515,7 +1515,7 @@ int ngtcp2_cc_bbrfrcst_cc_init(ngtcp2_cc *cc, ngtcp2_log *log,
                            const ngtcp2_rand_ctx *rand_ctx,
                            const ngtcp2_mem *mem) {
   ngtcp2_bbr2_cc *bbr;
-  fprint(stderr, "Initial parameters ld\n", cstat->frcst_bw)
+  fprintf(stderr, "Initial parameters %ld\n", cstat->frcst_bw);
 
   bbr = ngtcp2_mem_calloc(mem, 1, sizeof(ngtcp2_bbr2_cc));
   if (bbr == NULL) {
