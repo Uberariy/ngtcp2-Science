@@ -1294,30 +1294,20 @@ static void bbr_set_cwnd(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
   bbr_update_max_inflight(bbr, cstat);
   bbr_modulate_cwnd_for_recovery(bbr, cstat, ack);
 
-  if (bbr->state == NGTCP2_BBRFRCST_STATE_FRCST) {
-    if (!bbr->packet_conservation) {
-      if (bbr->filled_pipe) {
-        cstat->cwnd = ngtcp2_min(cstat->cwnd, cstat->frcst_bw);
-      }
-      // } else if (cstat->cwnd < cstat->frcst_bw ||
-      //           bbr->rst->delivered < bbr->initial_cwnd) {
-      //   cstat->cwnd += ack->bytes_delivered;
-      // }
-    }
-  } else {
-    if (!bbr->packet_conservation) {
-      if (bbr->filled_pipe) {
-        cstat->cwnd += ack->bytes_delivered;
-        cstat->cwnd = ngtcp2_min(cstat->cwnd, bbr->max_inflight);
-      } else if (cstat->cwnd < bbr->max_inflight ||
-                bbr->rst->delivered < bbr->initial_cwnd) {
+  if (!bbr->packet_conservation) {
+    if (bbr->filled_pipe) {
+      if (bbr->state == NGTCP2_BBRFRCST_STATE_FRCST) {
         cstat->cwnd += ack->bytes_delivered;
       }
+      cstat->cwnd = ngtcp2_min(cstat->cwnd, bbr->max_inflight);
+    } else if (cstat->cwnd < bbr->max_inflight ||
+              bbr->rst->delivered < bbr->initial_cwnd) {
+      cstat->cwnd += ack->bytes_delivered;
     }
-  }
 
-  mpcwnd = min_pipe_cwnd(cstat->max_udp_payload_size);
-  cstat->cwnd = ngtcp2_max(cstat->cwnd, mpcwnd);
+    mpcwnd = min_pipe_cwnd(cstat->max_udp_payload_size);
+    cstat->cwnd = ngtcp2_max(cstat->cwnd, mpcwnd);
+  }
 
   fprintf(stderr, "Curr cwnd 0: %ld\n", cstat->cwnd);
   bbr_bound_cwnd_for_forecast(bbr, cstat);
