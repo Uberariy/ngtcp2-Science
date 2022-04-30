@@ -1296,7 +1296,7 @@ static void bbr_set_cwnd(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
 
   if (!bbr->packet_conservation) {
     if (bbr->filled_pipe) {
-      if (bbr->state == NGTCP2_BBRFRCST_STATE_FRCST) {
+      if (bbr->state != NGTCP2_BBRFRCST_STATE_FRCST) {
         cstat->cwnd += ack->bytes_delivered;
       }
       cstat->cwnd = ngtcp2_min(cstat->cwnd, bbr->max_inflight);
