@@ -1247,18 +1247,20 @@ static void bbr_advance_max_bw_filter(ngtcp2_bbr2_cc *bbr) {
 static void bbr_modulate_cwnd_for_recovery(ngtcp2_bbr2_cc *bbr,
                                            ngtcp2_conn_stat *cstat,
                                            const ngtcp2_cc_ack *ack) {
-  if (ack->bytes_lost > 0) {
-    if (cstat->cwnd > ack->bytes_lost) {
-      cstat->cwnd -= ack->bytes_lost;
-      cstat->cwnd = ngtcp2_max(cstat->cwnd, 2 * cstat->max_udp_payload_size);
-    } else {
-      cstat->cwnd = cstat->max_udp_payload_size;
+  if (bbr->state != NGTCP2_BBRFRCST_STATE_FRCST) {
+    if (ack->bytes_lost > 0) {
+      if (cstat->cwnd > ack->bytes_lost) {
+        cstat->cwnd -= ack->bytes_lost;
+        cstat->cwnd = ngtcp2_max(cstat->cwnd, 2 * cstat->max_udp_payload_size);
+      } else {
+        cstat->cwnd = cstat->max_udp_payload_size;
+      }
     }
-  }
 
-  if (bbr->packet_conservation) {
-    cstat->cwnd =
-        ngtcp2_max(cstat->cwnd, cstat->bytes_in_flight + ack->bytes_delivered);
+    if (bbr->packet_conservation) {
+      cstat->cwnd =
+          ngtcp2_max(cstat->cwnd, cstat->bytes_in_flight + ack->bytes_delivered);
+    }
   }
 }
 
