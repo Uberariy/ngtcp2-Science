@@ -1315,14 +1315,14 @@ static void bbr_set_cwnd(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
   bbr_modulate_cwnd_for_recovery(bbr, cstat, ack);
 
   if (!bbr->packet_conservation) {
-    if (bbr->filled_pipe) {
-      if (bbr->state != NGTCP2_BBRFRCST_STATE_FRCST) {
+    if (bbr->state != NGTCP2_BBRFRCST_STATE_FRCST) {
+      if (bbr->filled_pipe) {
+        cstat->cwnd += ack->bytes_delivered;
+        cstat->cwnd = ngtcp2_min(cstat->cwnd, bbr->max_inflight);
+      } else if (cstat->cwnd < bbr->max_inflight ||
+                bbr->rst->delivered < bbr->initial_cwnd) {
         cstat->cwnd += ack->bytes_delivered;
       }
-      cstat->cwnd = ngtcp2_min(cstat->cwnd, bbr->max_inflight);
-    } else if (cstat->cwnd < bbr->max_inflight ||
-              bbr->rst->delivered < bbr->initial_cwnd) {
-      cstat->cwnd += ack->bytes_delivered;
     }
 
     mpcwnd = min_pipe_cwnd(cstat->max_udp_payload_size);
@@ -1353,6 +1353,7 @@ static void bbr_bound_cwnd_for_model(ngtcp2_bbr2_cc *bbr,
   cap = ngtcp2_min(cap, bbr->inflight_lo);
   cap = ngtcp2_max(cap, mpcwnd);
 
+  fprint(stderr, "Curr cwnd 2: %ld   cap: %ld\n", cstat->cwnd, cap);
   cstat->cwnd = ngtcp2_min(cstat->cwnd, cap);
 }
 
