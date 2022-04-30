@@ -1353,7 +1353,7 @@ static void bbr_bound_cwnd_for_model(ngtcp2_bbr2_cc *bbr,
   cap = ngtcp2_min(cap, bbr->inflight_lo);
   cap = ngtcp2_max(cap, mpcwnd);
 
-  fprint(stderr, "Curr cwnd 2: %ld   cap: %ld\n", cstat->cwnd, cap);
+  fprintf(stderr, "Curr cwnd 2: %ld   cap: %ld\n", cstat->cwnd, cap);
   cstat->cwnd = ngtcp2_min(cstat->cwnd, cap);
 }
 
