@@ -1279,7 +1279,7 @@ static void bbr_bound_cwnd_for_probe_rtt(ngtcp2_bbr2_cc *bbr,
 
 static void bbr_bound_cwnd_for_forecast(ngtcp2_bbr2_cc *bbr,
                                         ngtcp2_conn_stat *cstat) {
-  uint64_t forecast_cwnd = (double)cstat->frcst_bw * cstat->frcst_rtt;
+  uint64_t forecast_cwnd = (double)cstat->frcst_bw * cstat->frcst_rtt / NGTCP2_SECONDS;
   fprintf(stderr, "Forecast cwnd: %ld\n", forecast_cwnd);
 
   if (bbr->state == NGTCP2_BBRFRCST_STATE_FRCST) {
@@ -1296,8 +1296,12 @@ static void bbr_set_cwnd(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
 
   if (!bbr->packet_conservation) {
     if (bbr->filled_pipe) {
-      cstat->cwnd += ack->bytes_delivered;
-      cstat->cwnd = ngtcp2_min(cstat->cwnd, bbr->max_inflight);
+      if (bbr->state == NGTCP2_BBRFRCST_STATE_FRCST) {
+        cstat->cwnd = ngtcp2_min(cstat->cwnd, cstat->frcst_bw);
+      } else {
+        cstat->cwnd += ack->bytes_delivered;
+        cstat->cwnd = ngtcp2_min(cstat->cwnd, bbr->max_inflight);
+      }
     } else if (cstat->cwnd < bbr->max_inflight ||
                bbr->rst->delivered < bbr->initial_cwnd) {
       cstat->cwnd += ack->bytes_delivered;
