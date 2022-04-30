@@ -1067,9 +1067,9 @@ static int conn_new(ngtcp2_conn **pconn, const ngtcp2_cid *dcid,
   (*pconn)->cstat.max_udp_payload_size =
       (*pconn)->local.settings.max_udp_payload_size;
 
-  (*pconn)->cstat->frcst_rtt = params->frcst_rtt;
-  (*pconn)->cstat->frcst_loss = params->frcst_loss;
-  (*pconn)->cstat->frcst_bw = params->frcst_bw;
+  (*pconn)->cstat.frcst_rtt = params->frcst_rtt;
+  (*pconn)->cstat.frcst_loss = params->frcst_loss;
+  (*pconn)->cstat.frcst_bw = params->frcst_bw;
 
   ngtcp2_rst_init(&(*pconn)->rst);
 
