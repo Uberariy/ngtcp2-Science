@@ -1299,7 +1299,10 @@ static void bbr_bound_cwnd_for_probe_rtt(ngtcp2_bbr2_cc *bbr,
 
 static void bbr_bound_cwnd_for_forecast(ngtcp2_bbr2_cc *bbr,
                                         ngtcp2_conn_stat *cstat) {
-  uint64_t forecast_cwnd = (double)cstat->frcst_bw * cstat->frcst_rtt * 100 / (100 + cstat->frcst_loss) / NGTCP2_SECONDS;
+  uint64_t forecast_cwnd = (double)cstat->frcst_bw * cstat->frcst_rtt * 
+  100 / (100 + (100 * cstat->frcst_loss) / (100 - cstat->frcst_loss)) 
+  / NGTCP2_SECONDS;
+  
   fprintf(stderr, "Forecast cwnd: %ld\n", forecast_cwnd);
 
   if (bbr->state == NGTCP2_BBRFRCST_STATE_FRCST) {
