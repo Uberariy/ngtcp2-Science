@@ -195,7 +195,7 @@ static int bbr_check_inflight_too_high(ngtcp2_bbr2_cc *bbr,
                                        ngtcp2_conn_stat *cstat,
                                        ngtcp2_tstamp ts);
 
-static int is_inflight_too_high(const ngtcp2_rs *rs);
+static int is_inflight_too_high(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat, const ngtcp2_rs *rs);
 
 static void bbr_handle_inflight_too_high(ngtcp2_bbr2_cc *bbr,
                                          ngtcp2_conn_stat *cstat,
@@ -204,7 +204,8 @@ static void bbr_handle_inflight_too_high(ngtcp2_bbr2_cc *bbr,
 static void bbr_handle_lost_packet(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
                                    const ngtcp2_cc_pkt *pkt, ngtcp2_tstamp ts);
 
-static uint64_t bbr_inflight_hi_from_lost_packet(ngtcp2_bbr2_cc *bbr,
+static uint64_t bbr_inflight_hi_from_lost_packet(ngtcp2_conn_stat *cstat,
+                                                 ngtcp2_bbr2_cc *bbr,
                                                  const ngtcp2_rs *rs,
                                                  const ngtcp2_cc_pkt *pkt);
 
@@ -404,7 +405,7 @@ static void bbr_check_startup_high_loss(ngtcp2_bbr2_cc *bbr,
   }
 
   /* loss_thresh = 2% */
-  if (bbr->bytes_lost_in_round * 100 <= ack->prior_bytes_in_flight * 2) {
+  if (bbr->bytes_lost_in_round * 100 <= ack->prior_bytes_in_flight * NGTCP2_BBR_LOSS_THRESH_NUMER) {
     return;
   }
 
@@ -956,7 +957,7 @@ static uint64_t bbr_target_inflight(ngtcp2_bbr2_cc *bbr,
 static int bbr_check_inflight_too_high(ngtcp2_bbr2_cc *bbr,
                                        ngtcp2_conn_stat *cstat,
                                        ngtcp2_tstamp ts) {
-  if (is_inflight_too_high(&bbr->rst->rs)) {
+  if (is_inflight_too_high(bbr, cstat, &bbr->rst->rs)) {
     if (bbr->bw_probe_samples) {
       bbr_handle_inflight_too_high(bbr, cstat, &bbr->rst->rs, ts);
     }
@@ -967,9 +968,14 @@ static int bbr_check_inflight_too_high(ngtcp2_bbr2_cc *bbr,
   return 0;
 }
 
-static int is_inflight_too_high(const ngtcp2_rs *rs) {
-  return rs->lost * NGTCP2_BBR_LOSS_THRESH_DENOM >
-         rs->tx_in_flight * NGTCP2_BBR_LOSS_THRESH_NUMER;
+static int is_inflight_too_high(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat, const ngtcp2_rs *rs) {
+  if (bbr->state == NGTCP2_BBRFRCST_STATE_FRCST) {
+    return rs->lost * NGTCP2_BBR_LOSS_THRESH_DENOM >
+          rs->tx_in_flight * cstat->frcst_loss;
+  } else {
+    return rs->lost * NGTCP2_BBR_LOSS_THRESH_DENOM >
+          rs->tx_in_flight * NGTCP2_BBR_LOSS_THRESH_NUMER;
+  }
 }
 
 static void bbr_handle_inflight_too_high(ngtcp2_bbr2_cc *bbr,
@@ -1003,14 +1009,15 @@ static void bbr_handle_lost_packet(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
   rs.lost = bbr->rst->lost - pkt->lost;
   rs.is_app_limited = pkt->is_app_limited;
 
-  if (is_inflight_too_high(&rs)) {
-    rs.tx_in_flight = bbr_inflight_hi_from_lost_packet(bbr, &rs, pkt);
+  if (is_inflight_too_high(bbr, cstat, &rs)) {
+    rs.tx_in_flight = bbr_inflight_hi_from_lost_packet(cstat, bbr, &rs, pkt);
 
     bbr_handle_inflight_too_high(bbr, cstat, &rs, ts);
   }
 }
 
-static uint64_t bbr_inflight_hi_from_lost_packet(ngtcp2_bbr2_cc *bbr,
+static uint64_t bbr_inflight_hi_from_lost_packet(ngtcp2_conn_stat *cstat,
+                                                 ngtcp2_bbr2_cc *bbr,
                                                  const ngtcp2_rs *rs,
                                                  const ngtcp2_cc_pkt *pkt) {
   uint64_t inflight_prev, lost_prefix;
@@ -1024,14 +1031,25 @@ static uint64_t bbr_inflight_hi_from_lost_packet(ngtcp2_bbr2_cc *bbr,
 
   /* bbr->rst->lost is not incremented for pkt yet */
 
-  if (inflight_prev * NGTCP2_BBR_LOSS_THRESH_NUMER <
-      rs->lost * NGTCP2_BBR_LOSS_THRESH_DENOM) {
-    return inflight_prev;
-  }
+  if (bbr->state == NGTCP2_BBRFRCST_STATE_FRCST) {
+    if (inflight_prev * cstat->frcst_loss <
+        rs->lost * NGTCP2_BBR_LOSS_THRESH_DENOM) {
+      return inflight_prev;
+    }
 
-  lost_prefix = (inflight_prev * NGTCP2_BBR_LOSS_THRESH_NUMER -
-                 rs->lost * NGTCP2_BBR_LOSS_THRESH_DENOM) /
-                (NGTCP2_BBR_LOSS_THRESH_DENOM - NGTCP2_BBR_LOSS_THRESH_NUMER);
+    lost_prefix = (inflight_prev * cstat->frcst_loss -
+                  rs->lost * NGTCP2_BBR_LOSS_THRESH_DENOM) /
+                  (NGTCP2_BBR_LOSS_THRESH_DENOM - cstat->frcst_loss);
+  } else {
+    if (inflight_prev * NGTCP2_BBR_LOSS_THRESH_NUMER <
+        rs->lost * NGTCP2_BBR_LOSS_THRESH_DENOM) {
+      return inflight_prev;
+    }
+
+    lost_prefix = (inflight_prev * NGTCP2_BBR_LOSS_THRESH_NUMER -
+                  rs->lost * NGTCP2_BBR_LOSS_THRESH_DENOM) /
+                  (NGTCP2_BBR_LOSS_THRESH_DENOM - NGTCP2_BBR_LOSS_THRESH_NUMER);
+  }
 
   return inflight_prev + lost_prefix;
 }
