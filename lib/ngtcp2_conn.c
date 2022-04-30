@@ -36,6 +36,8 @@
 #include "ngtcp2_path.h"
 #include "ngtcp2_rcvry.h"
 
+#include <stdio.h>
+
 /* NGTCP2_FLOW_WINDOW_RTT_FACTOR is the factor of RTT when flow
    control window auto-tuning is triggered. */
 #define NGTCP2_FLOW_WINDOW_RTT_FACTOR 2
