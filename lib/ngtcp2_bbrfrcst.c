@@ -1354,7 +1354,9 @@ static void bbr_bound_cwnd_for_model(ngtcp2_bbr2_cc *bbr,
   cap = ngtcp2_max(cap, mpcwnd);
 
   fprintf(stderr, "Curr cwnd 2: %ld   cap: %ld\n", cstat->cwnd, cap);
-  cstat->cwnd = ngtcp2_min(cstat->cwnd, cap);
+  if (bbr->state != NGTCP2_BBRFRCST_STATE_FRCST) {
+    cstat->cwnd = ngtcp2_min(cstat->cwnd, cap);
+  }
 }
 
 static void bbr_set_send_quantum(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat) {
