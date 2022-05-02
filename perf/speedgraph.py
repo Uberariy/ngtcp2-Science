@@ -1,3 +1,11 @@
+"""
+This program is an .ipybn notebook utility.
+
+This tool is designed to calculate amount of client data sent.
+Note, that total packets calculated can be more, than content delivered,
+because we calculate content size of packets, that include content.
+"""
+
 #%%
 import re
 import sys
@@ -5,16 +13,19 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
 import pandas as pd
+from collections import defaultdict
 
 #%%
 def pckt_dict(path, parti, fnd):
     '''Extract pckts per second and put in dict'''
     with open(path, 'r') as f:
         text = f.read()
-    patt = re.compile("I00(.*)[^I00]*"+fnd)
-    d = dict()
+    '''This reg. expr works for less than 10K seconds experiments'''
+    patt = re.compile(r"I00(.*)[^I00]*"+fnd)
+    d = defaultdict(int)
     for i in patt.findall(text):
-        d[int(i[:6])//parti] = d.setdefault(int(i[:6])//parti, 0) + 1
+        time_period = int(i[:6]) // parti
+        d[time_period] += 1
     return(d)
 
 #%%
@@ -22,10 +33,12 @@ def byte_dict(path, parti, fnd):
     '''Extract bytes per second and put in dict'''
     with open(path, 'r') as f:
         text = f.read()
-    patt = re.compile("I00(.*)[^I00]*"+fnd+"(.*)\n")
-    d = dict()
+    '''This reg. expr works for less than 10K seconds experiments'''
+    patt = re.compile(r"I00(.*)[^I00]*"+fnd+"(.*)\n")
+    d = defaultdict(int)
     for i in patt.findall(text):
-        d[int(i[0][:6])//parti] = d.setdefault(int(i[0][:6])//parti, 0) + int(re.search(" (\d*) bytes", i[1]).group(1))
+        time_period = int(i[0][:6]) // parti
+        d[time_period] += int(re.search(r" (\d*) bytes", i[1]).group(1))
     return(d)
 
 #%%
@@ -48,7 +61,7 @@ plt.show()
 
 #%%
 # INPUT:
-parti = 50         # Partition
+parti = 50          # Partition
 statfile = "logsrv" # Name of file
 
 d1 = byte_dict(statfile, parti, "Sent packet:")
