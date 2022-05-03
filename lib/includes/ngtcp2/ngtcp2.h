@@ -1637,6 +1637,8 @@ typedef struct ngtcp2_conn_stat {
   ngtcp2_duration frcst_rtt;
   double frcst_loss;
   uint64_t frcst_bw;
+  // Rtt for computing forecast adjacency
+  ngtcp2_duration ultra_rtt;
 } ngtcp2_conn_stat;
 
 /**

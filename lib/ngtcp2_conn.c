@@ -777,6 +777,7 @@ static void conn_reset_conn_stat_cc(ngtcp2_conn *conn,
   cstat->latest_rtt = 0;
   cstat->min_rtt = UINT64_MAX;
   cstat->smoothed_rtt = conn->local.settings.initial_rtt;
+  cstat->ultra_rtt = cstat->frcst_rtt;
   cstat->rttvar = conn->local.settings.initial_rtt / 2;
   cstat->first_rtt_sample_ts = UINT64_MAX;
   cstat->pto_count = 0;
@@ -12191,6 +12192,7 @@ int ngtcp2_conn_update_rtt(ngtcp2_conn *conn, ngtcp2_duration rtt,
     cstat->latest_rtt = rtt;
     cstat->min_rtt = rtt;
     cstat->smoothed_rtt = rtt;
+    cstat->ultra_rtt = rtt;
     cstat->rttvar = rtt / 2;
     cstat->first_rtt_sample_ts = ts;
   } else {
@@ -12223,15 +12225,17 @@ int ngtcp2_conn_update_rtt(ngtcp2_conn *conn, ngtcp2_duration rtt,
                                               : cstat->smoothed_rtt - rtt)) /
                     4;
     cstat->smoothed_rtt = (cstat->smoothed_rtt * 7 + rtt) / 8;
+    cstat->ultra_rtt = (cstat->ultra_rtt * 511 + rtt) / 512;
   }
 
   ngtcp2_log_info(&conn->log, NGTCP2_LOG_EVENT_RCV,
                   "latest_rtt=%" PRIu64 " min_rtt=%" PRIu64
-                  " smoothed_rtt=%" PRIu64 " rttvar=%" PRIu64
-                  " ack_delay=%" PRIu64,
+                  " smoothed_rtt=%" PRIu64 " ultra_rtt=%" PRIu64
+                  " rttvar=%" PRIu64 " ack_delay=%" PRIu64,
                   (uint64_t)(cstat->latest_rtt / NGTCP2_MILLISECONDS),
                   (uint64_t)(cstat->min_rtt / NGTCP2_MILLISECONDS),
                   cstat->smoothed_rtt / NGTCP2_MILLISECONDS,
+                  cstat->ultra_rtt / NGTCP2_MILLISECONDS,
                   cstat->rttvar / NGTCP2_MILLISECONDS,
                   (uint64_t)(ack_delay / NGTCP2_MILLISECONDS));
 
