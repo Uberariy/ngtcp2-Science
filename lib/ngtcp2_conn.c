@@ -12192,7 +12192,7 @@ int ngtcp2_conn_update_rtt(ngtcp2_conn *conn, ngtcp2_duration rtt,
     cstat->latest_rtt = rtt;
     cstat->min_rtt = rtt;
     cstat->smoothed_rtt = rtt;
-    cstat->ultra_rtt = frcst->rtt;
+    cstat->ultra_rtt = cstat->frcst_rtt;
     cstat->rttvar = rtt / 2;
     cstat->first_rtt_sample_ts = ts;
   } else {
