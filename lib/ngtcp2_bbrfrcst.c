@@ -423,7 +423,7 @@ static void bbr_set_pacing_rate_with_gain(ngtcp2_bbr2_cc *bbr,
                                           ngtcp2_conn_stat *cstat,
                                           double pacing_gain) {
   double rate;
-  fprintf(stderr, "curr bw bbr2 estimate: %ld", (double)bbr->bw);
+  fprintf(stderr, "curr bw bbr2 estimate: %ld", bbr->bw);
   if (bbr->state == NGTCP2_BBRFRCST_STATE_FRCST) {
     // pacing_gain equals 1 in FRCST state.
     rate = (double)cstat->frcst_bw *
