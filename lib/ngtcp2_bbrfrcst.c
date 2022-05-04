@@ -613,6 +613,9 @@ static void bbr_update_max_bw(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
                                 bbr->cycle_count);
 
     bbr->max_bw = ngtcp2_window_filter_get_best(&bbr->max_bw_filter);
+
+    ngtcp2_log_info(bbr->ccb.log, NGTCP2_LOG_EVENT_RCV,
+                    "bbr2 filled pipe, max_bw=%" PRIu64, bbr->max_bw);
   }
 }
 
@@ -1248,6 +1251,7 @@ static void bbr_advance_max_bw_filter(ngtcp2_bbr2_cc *bbr) {
 static void bbr_modulate_cwnd_for_recovery(ngtcp2_bbr2_cc *bbr,
                                            ngtcp2_conn_stat *cstat,
                                            const ngtcp2_cc_ack *ack) {
+  // This is because pckt_lost is not a congestion signal
   if (bbr->state != NGTCP2_BBRFRCST_STATE_FRCST) {
     if (ack->bytes_lost > 0) {
       if (cstat->cwnd > ack->bytes_lost) {
@@ -1300,6 +1304,8 @@ static void bbr_bound_cwnd_for_probe_rtt(ngtcp2_bbr2_cc *bbr,
 
 static void bbr_bound_cwnd_for_forecast(ngtcp2_bbr2_cc *bbr,
                                         ngtcp2_conn_stat *cstat) {
+                                          // Uberariy: Try to multiply on this number
+                                          // * NGTCP2_BBR_HEADROOM_NUMER / GTCP2_BBR_HEADROOM_DENOM                                        
   uint64_t forecast_cwnd = (double)cstat->frcst_bw * cstat->frcst_rtt * 
   100 / (100 + (100 * cstat->frcst_loss) / (100 - cstat->frcst_loss)) 
   / NGTCP2_SECONDS;
@@ -1359,6 +1365,7 @@ static void bbr_bound_cwnd_for_model(ngtcp2_bbr2_cc *bbr,
 
   fprintf(stderr, "Curr cwnd 2: %ld   cap: %ld\n", cstat->cwnd, cap);
   if (bbr->state != NGTCP2_BBRFRCST_STATE_FRCST) {
+    // For FRCST we can try to use headroom in formula
     cstat->cwnd = ngtcp2_min(cstat->cwnd, cap);
   }
 }

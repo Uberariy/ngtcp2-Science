@@ -60,13 +60,19 @@ if __name__ == '__main__':
         for i, j in d.items():
             print(f"Second {i*parti/1000}-{(i+1)*parti/1000}: Bytes {fnd.split()[0].lower()}: {j}")
         if d:
-            print(f"Mean speed {sum([j for i, j in d.items()][:-1])/len([j for i, j in d.items()][:-1])} bytes per {parti/1000} seconds")
+            if len(d.values()) != 1:
+                print(f"Mean speed {sum([*d.values()][:-1])/len([*d.values()][:-1])} bytes per {parti/1000} seconds")
+            else:
+                print(f"Mean speed {[*d.values()][0]} bytes per {parti/1000} seconds")
     elif args.mode.upper() == "PCKT":
         d = pckt_dict(filepath, parti, fnd)
         for i, j in d.items():
             print(f"Second {i*parti/1000}-{(i+1)*parti/1000}: Packets {fnd.split()[0].lower()}: {j}")
         if d:
-            print(f"Mean speed {sum([j for i, j in d.items()][:-1])/len([j for i, j in d.items()][:-1])} pckts per {parti/1000} seconds")
+            if len(d.values()) != 1:
+                print(f"Mean speed {sum([*d.values()][:-1])/len([*d.values()][:-1])} pckts per {parti/1000} seconds")
+            else:
+                print(f"Mean speed {[*d.values()][0]} pckts per {parti/1000} seconds")
     else:
         sys.exit("speedlog.py:\nNo such mode")
     sys.exit("Success")

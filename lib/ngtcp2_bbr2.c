@@ -415,6 +415,9 @@ static void bbr_init_pacing_rate(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat) {
 static void bbr_set_pacing_rate_with_gain(ngtcp2_bbr2_cc *bbr,
                                           ngtcp2_conn_stat *cstat,
                                           double pacing_gain) {
+  ngtcp2_log_info(bbr->ccb.log, NGTCP2_LOG_EVENT_RCV,
+                    "Uberariy: bbr2 updated pacing_rate, bbr->bw=%" PRIu64, bbr->bbr->bw);
+                    
   double rate = pacing_gain * (double)bbr->bw *
                 (100 - NGTCP2_BBR_PACING_MARGIN_PERCENT) / 100 / NGTCP2_SECONDS;
 
@@ -576,6 +579,9 @@ static void bbr_update_max_bw(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
                                 bbr->cycle_count);
 
     bbr->max_bw = ngtcp2_window_filter_get_best(&bbr->max_bw_filter);
+
+    ngtcp2_log_info(bbr->ccb.log, NGTCP2_LOG_EVENT_RCV,
+                    "bbr2 filled pipe, max_bw=%" PRIu64, bbr->max_bw);
   }
 }
 
