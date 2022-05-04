@@ -2,6 +2,8 @@ import re
 import sys
 from collections import defaultdict
 import argparse
+import json
+import yaml
 
 
 def pckt_dict(path, parti, fnd):
@@ -30,11 +32,51 @@ def byte_dict(path, parti, fnd):
     return(d)
 
 
+def custom_dict(path, parti, fnd):
+    '''Extract rtt/bw per second and put in dict'''
+    with open(path, 'r') as f:
+        text = f.read()
+    '''This reg. expr works for less than 10K seconds experiments'''
+    patt = re.compile(r"I00(.*)[^I00]*"+fnd+"(.*)\n")
+    d = defaultdict(int)
+    cd = defaultdict(int)
+    for i in patt.findall(text):
+        time_period = int(i[0][:6]) // parti
+        buff = int(i[1].split()[0])
+        if (buff >= 10**5) and fnd.startswith("min_rtt"):
+            '''We encouter MAXINT, because no rtt is calculated'''
+            d[time_period] += 0
+        else:
+            d[time_period] += buff
+            cd[time_period] += 1
+    for i in d.keys():
+        d[i] = d[i] // cd[i]
+    return(d)
+
+
 arg_parser = argparse.ArgumentParser(prog='speedlog',
                                      description='Calculate amount of client data sent. ' 
                                      'Note, that total packets calculated can be more, than content delivered, '
                                      'because we calculate content size of packets, that include content. ')                                     
-arg_parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.1')
+arg_parser.add_argument('-v', '--version', action='version', version='%(prog)s 2.1')
+arg_parser.add_argument('--lrtt', dest='lrtt', type=bool, default=False, 
+                        help='Use this parameter if you want mean latest rtt to be calculated. '
+                             'Latest rtt is rtt from each packet. '
+                             'It is better to work with srtt, because we dont include ack delays there')
+arg_parser.add_argument('--srtt', dest='srtt', type=bool, default=False, 
+                        help='Use this parameter if you want mean smoothed rtt to be calculated. '
+                             'By default srtt is calculated in agent with 7/8 of previous value, and 1/8 of new '
+                             'depending on pckts recieved')
+arg_parser.add_argument('--mrtt', dest='mrtt', type=bool, default=False, 
+                        help='Use this parameter if you want mean min rtt to be calculated'
+                             'Min rtt is congestion controller estimate on what min_rtt is')
+arg_parser.add_argument('--bw', dest='bw', type=bool, default=False, 
+                        help='Use this parameter if you want mean bw to be calculated. '
+                             'Max bw is congestion controller estimate on what max_bw is')
+arg_parser.add_argument('--json', dest='json', type=str, default='', 
+                        help='Save all the data in json format file with file path inserted (--json=PATH)')
+arg_parser.add_argument('--yaml', dest='yaml', type=str, default='', 
+                        help='Save all the data in json format file with file path inserted (--yaml=PATH)')
 
 arg_parser.add_argument('path', metavar='PATH', nargs='?', type=str, default='',
                         help='Path of file with stderr of ngtcp2 client|server.')
@@ -55,24 +97,49 @@ if __name__ == '__main__':
     except Exception as E:
         sys.exit(f"speedlog.py:\nPartition must be integer: {E}")
     print(f"Estimating speed in {args.mode.upper()} mode:")
+    ld = []
     if args.mode.upper() == "BYTE":
-        d = byte_dict(filepath, parti, fnd)
-        for i, j in d.items():
-            print(f"Second {i*parti/1000}-{(i+1)*parti/1000}: Bytes {fnd.split()[0].lower()}: {j}")
-        if d:
-            if len(d.values()) != 1:
-                print(f"Mean speed {sum([*d.values()][:-1])/len([*d.values()][:-1])} bytes per {parti/1000} seconds")
-            else:
-                print(f"Mean speed {[*d.values()][0]} bytes per {parti/1000} seconds")
+        ld.append(byte_dict(filepath, parti, fnd))
     elif args.mode.upper() == "PCKT":
-        d = pckt_dict(filepath, parti, fnd)
-        for i, j in d.items():
-            print(f"Second {i*parti/1000}-{(i+1)*parti/1000}: Packets {fnd.split()[0].lower()}: {j}")
-        if d:
-            if len(d.values()) != 1:
-                print(f"Mean speed {sum([*d.values()][:-1])/len([*d.values()][:-1])} pckts per {parti/1000} seconds")
-            else:
-                print(f"Mean speed {[*d.values()][0]} pckts per {parti/1000} seconds")
+        ld.append(pckt_dict(filepath, parti, fnd))
     else:
         sys.exit("speedlog.py:\nNo such mode")
+    whatis = [f'{args.mode.lower()}s {fnd.split()[0].lower()}: ']
+    if args.srtt:
+        ld.append(custom_dict(filepath, parti, "smoothed_rtt="))
+        whatis.append("mean s_rtt: ")
+    if args.srtt:
+        ld.append(custom_dict(filepath, parti, "latest_rtt="))
+        whatis.append("mean l_rtt: ")
+    if args.mrtt:
+        ld.append(custom_dict(filepath, parti, "min_rtt="))
+        whatis.append("mean min_rtt: ")
+    if args.bw:
+        ld.append(custom_dict(filepath, parti, "max_bw="))
+        whatis.append("mean max_bw: ")
+    savelist = []
+    for i in ld[0].keys():
+        print(f"Second {i*parti/1000}-{(i+1)*parti/1000}:\t {whatis[0]}{ld[0][i]}", end="\t")
+        currd = dict()
+        if args.json != '' or args.yaml != '':
+            currd["time"] = f"{i*parti/1000}-{(i+1)*parti/1000}"
+            currd[whatis[0]] = ld[0][i]
+        for g, j in enumerate(ld[1:]):
+            print(f"{whatis[g+1]}{j[i]}", end="\t")
+            if args.json != '' or args.yaml != '':
+                currd[whatis[g+1]] = j[i]
+        if args.json != '' or args.yaml != '':
+            savelist.append(currd)
+        print("")
+    if ld[0]:
+        if len(ld[0].values()) != 1:
+            print(f"Mean speed {sum([*ld[0].values()][:-1])/len([*ld[0].values()][:-1])} {args.mode.lower()}s per {parti/1000} seconds")
+        else:
+            print(f"Mean speed {[*ld[0].values()][0]} {args.mode.lower()}s per {parti/1000} seconds")
+    if args.json != '':
+        with open(args.json, 'w') as f:
+            json.dump(savelist, f, indent = 6)
+    if args.yaml != '':
+        with open(args.yaml, 'w') as f:
+            yaml.dump(savelist, f, default_flow_style=True)
     sys.exit("Success")
