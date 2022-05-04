@@ -115,7 +115,7 @@ if __name__ == '__main__':
     if args.srtt:
         ld.append(custom_dict(filepath, parti, "smoothed_rtt="))
         whatis.append("mean s_rtt: ")
-    if args.srtt:
+    if args.lrtt:
         ld.append(custom_dict(filepath, parti, "latest_rtt="))
         whatis.append("mean l_rtt: ")
     if args.mrtt:
