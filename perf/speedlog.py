@@ -42,7 +42,10 @@ def custom_dict(path, parti, fnd):
     cd = defaultdict(int)
     for i in patt.findall(text):
         time_period = int(i[0][:6]) // parti
-        buff = int(i[1].split()[0])
+        if fnd.startswith("loss"):
+            buff = float(i[1].split()[0])
+        else:
+            buff = int(i[1].split()[0])
         if (buff >= 10**5) and fnd.startswith("min_rtt"):
             '''We encouter MAXINT, because no rtt is calculated'''
             d[time_period] += 0
@@ -73,6 +76,10 @@ arg_parser.add_argument('--mrtt', dest='mrtt', type=bool, default=False,
 arg_parser.add_argument('--bw', dest='bw', type=bool, default=False, 
                         help='Use this parameter if you want mean bw to be calculated. '
                              'Max bw is congestion controller estimate on what max_bw is')
+arg_parser.add_argument('--jitt', dest='jitt', type=bool, default=False, 
+                        help='Use this parameter if you want mean jitter to be calculated')
+arg_parser.add_argument('--loss', dest='loss', type=bool, default=False, 
+                        help='Use this parameter if you want mean loss percent to be calculated. ')
 arg_parser.add_argument('--json', dest='json', type=str, default='', 
                         help='Save all the data in json format file with file path inserted (--json=PATH)')
 arg_parser.add_argument('--yaml', dest='yaml', type=str, default='', 
@@ -117,15 +124,25 @@ if __name__ == '__main__':
     if args.bw:
         ld.append(custom_dict(filepath, parti, "max_bw="))
         whatis.append("mean max_bw: ")
+    if args.jitt:
+        ld.append(custom_dict(filepath, parti, "rttvar="))
+        whatis.append("mean jitter: ")
+    if args.loss:
+        ld.append(custom_dict(filepath, parti, "loss="))
+        whatis.append("mean loss: ")
     savelist = []
     for i in ld[0].keys():
-        print(f"Second {i*parti/1000}-{(i+1)*parti/1000}:\t {whatis[0]}{ld[0][i]}", end="\t")
+        pri = f"Second {i*parti/1000}-{(i+1)*parti/1000}:"
+        print(pri, end=" "*(20 - len(pri)))
+        pri = f"{whatis[0]}{ld[0][i]}"
+        print(pri, end=" "*(24 - len(pri)))
         currd = dict()
         if args.json != '' or args.yaml != '':
             currd["time"] = f"{i*parti/1000}-{(i+1)*parti/1000}"
             currd[whatis[0]] = ld[0][i]
         for g, j in enumerate(ld[1:]):
-            print(f"{whatis[g+1]}{j[i]}", end="\t")
+            pri = f"{whatis[g+1]}{j[i]}"
+            print(pri, end=" "*(24 - len(pri)))
             if args.json != '' or args.yaml != '':
                 currd[whatis[g+1]] = j[i]
         if args.json != '' or args.yaml != '':
