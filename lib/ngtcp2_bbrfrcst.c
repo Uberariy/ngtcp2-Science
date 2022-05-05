@@ -1395,11 +1395,11 @@ static void bbr_set_cwnd(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
     cstat->cwnd = ngtcp2_max(cstat->cwnd, mpcwnd);
   }
 
-  fprintf(stderr, "Curr cwnd 0: %ld\n", cstat->cwnd);
+  //fprintf(stderr, "Curr cwnd 0: %ld\n", cstat->cwnd);
   bbr_bound_cwnd_for_forecast(bbr, cstat);
   bbr_bound_cwnd_for_probe_rtt(bbr, cstat);
   bbr_bound_cwnd_for_model(bbr, cstat);
-  fprintf(stderr, "Curr cwnd 1: %ld\n", cstat->cwnd);
+  //fprintf(stderr, "Curr cwnd 1: %ld\n", cstat->cwnd);
 }
 
 static void bbr_bound_cwnd_for_model(ngtcp2_bbr2_cc *bbr,
@@ -1419,7 +1419,7 @@ static void bbr_bound_cwnd_for_model(ngtcp2_bbr2_cc *bbr,
   cap = ngtcp2_min(cap, bbr->inflight_lo);
   cap = ngtcp2_max(cap, mpcwnd);
 
-  fprintf(stderr, "Curr cwnd 2: %ld   cap: %ld\n", cstat->cwnd, cap);
+  //fprintf(stderr, "Curr cwnd 2: %ld   cap: %ld\n", cstat->cwnd, cap);
   if (bbr->state != NGTCP2_BBRFRCST_STATE_FRCST) {
     // For FRCST we can try to use headroom in formula
     cstat->cwnd = ngtcp2_min(cstat->cwnd, cap);
