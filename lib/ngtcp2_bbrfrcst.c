@@ -87,7 +87,8 @@ static void bbr_enter_startup(ngtcp2_bbr2_cc *bbr);
 static void bbr_check_startup_done(ngtcp2_bbr2_cc *bbr,
                                    const ngtcp2_cc_ack *ack);
 
-static void bbr_enter_forecast(ngtcp2_bbr2_cc *bbr);
+static void bbr_enter_forecast(ngtcp2_bbr2_cc *bbr,
+                               ngtcp2_tstamp ts);
 
 static void bbr_check_forecast_done(ngtcp2_bbr2_cc *bbr,
                                     const ngtcp2_cc_ack *ack,
@@ -307,7 +308,7 @@ static void bbr_on_init(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
   bbr_init_full_pipe(bbr);
   bbr_init_pacing_rate(bbr, cstat);
   //bbr_enter_startup(bbr);
-  bbr_enter_forecast(bbr);
+  bbr_enter_forecast(bbr, initial_ts);
 
   cstat->send_quantum = cstat->max_udp_payload_size * 10;
 
@@ -355,7 +356,6 @@ static void bbr_on_init(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
   bbr->probe_rtt_expired = 0;
   bbr->probe_rtt_min_delay = UINT64_MAX;
   bbr->probe_rtt_min_stamp = initial_ts;
-  bbr->forecast_good_stamp = initial_ts;
 
   bbr->in_loss_recovery = 0;
   bbr->packet_conservation = 0;
@@ -479,7 +479,7 @@ static void bbr_check_startup_done(ngtcp2_bbr2_cc *bbr,
   }
 }
 
-static void bbr_enter_forecast(ngtcp2_bbr2_cc *bbr) {
+static void bbr_enter_forecast(ngtcp2_bbr2_cc *bbr, ngtcp2_tstamp ts) {
   ngtcp2_log_info(bbr->ccb.log, NGTCP2_LOG_EVENT_RCV, "bbr2 enter Forecast");
 
   // Uberariy: Try bbr->ack_phase = NGTCP2_BBR2_ACK_PHASE_ACKS_PROBE_STOPPING;
@@ -1144,7 +1144,7 @@ static void bbr_check_forecast(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
       (abs(cstat->frcst_bw - bbr->ultra_bw) <= (cstat->frcst_bw * 0.2)) &&
       (abs(cstat->frcst_rtt - cstat->ultra_rtt) <= (cstat->frcst_rtt * 0.2))) {
     bbr->forecast_enter_flag = 0;
-    bbr_enter_forecast(bbr);
+    bbr_enter_forecast(bbr, ts);
     bbr_save_cwnd(bbr, cstat);
 
     // Questionable..
