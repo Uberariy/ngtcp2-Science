@@ -91,6 +91,9 @@ static void bbr_enter_forecast(ngtcp2_bbr2_cc *bbr);
 static void bbr_check_forecast_done(ngtcp2_bbr2_cc *bbr,
                                     const ngtcp2_cc_ack *ack);
 
+static void bbr_check_forecast(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
+                               ngtcp2_tstamp ts)
+
 static void bbr_update_on_ack(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
                               const ngtcp2_cc_ack *ack, ngtcp2_tstamp ts);
 
@@ -300,8 +303,8 @@ static void bbr_on_init(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
   bbr_init_round_counting(bbr);
   bbr_init_full_pipe(bbr);
   bbr_init_pacing_rate(bbr, cstat);
-  //bbr_enter_startup(bbr); // TODO: enter FORECAST and give it parameters
-  bbr_enter_forecast(bbr);
+  bbr_enter_startup(bbr);
+  //bbr_enter_forecast(bbr);
 
   cstat->send_quantum = cstat->max_udp_payload_size * 10;
 
@@ -312,7 +315,16 @@ static void bbr_on_init(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
   bbr->rounds_since_bw_probe = 0;
 
   bbr->max_bw = 0;
+  // For long bw estimations
+  bbr->ultra_bw = 0;
   bbr->bw = 0;
+
+  // This guarantee, that we can wait 5.200 seconds between frcst states 
+  if (bbr->state == NGTCP2_BBRFRCST_STATE_FRCST) {
+    bbr->forecast_enter_flag = 0;
+  } else {
+    bbr->forecast_enter_flag = 1;
+  }
 
   bbr->cycle_count = 0;
 
@@ -424,7 +436,7 @@ static void bbr_set_pacing_rate_with_gain(ngtcp2_bbr2_cc *bbr,
                                           double pacing_gain) {
   double rate;
   //fprintf(stderr, "curr bw bbr2 estimate: %ld", bbr->bw);
-  if (0) {
+  if (bbr->state == NGTCP2_BBRFRCST_STATE_FRCST) {
     // pacing_gain equals 1 in FRCST state.
     rate = (double)cstat->frcst_bw *
                 (100 - NGTCP2_BBR_PACING_MARGIN_PERCENT) / 100 / NGTCP2_SECONDS;
@@ -463,6 +475,8 @@ static void bbr_check_startup_done(ngtcp2_bbr2_cc *bbr,
 static void bbr_enter_forecast(ngtcp2_bbr2_cc *bbr) {
   ngtcp2_log_info(bbr->ccb.log, NGTCP2_LOG_EVENT_RCV, "bbr2 enter Forecast");
 
+  // Uberariy: Try bbr->ack_phase = NGTCP2_BBR2_ACK_PHASE_ACKS_PROBE_STOPPING;
+  // Like in probeBW_DOWN before cruise
   bbr->state = NGTCP2_BBRFRCST_STATE_FRCST;
   bbr->pacing_gain = 1.0;
   bbr->cwnd_gain = 1;
@@ -504,6 +518,7 @@ static void bbr_update_model_and_state(ngtcp2_bbr2_cc *bbr,
   bbr_check_drain(bbr, cstat, ts);
   bbr_update_probe_bw_cycle_phase(bbr, cstat, ack, ts);
   bbr_update_min_rtt(bbr, ack, ts);
+  bbr_check_forecast(bbr, cstat, ts);
   bbr_check_probe_rtt(bbr, cstat, ts);
   bbr_advance_latest_delivery_signals(bbr, cstat);
   bbr_bound_bw_for_model(bbr);
@@ -613,9 +628,15 @@ static void bbr_update_max_bw(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
                                 bbr->cycle_count);
 
     bbr->max_bw = ngtcp2_window_filter_get_best(&bbr->max_bw_filter);
+    if (bbr->max_bw != 0) {
+      bbr->ultra_bw = (bbr->ultra_bw * 63 + bbr->max_bw) / 64;
+    }
 
     ngtcp2_log_info(bbr->ccb.log, NGTCP2_LOG_EVENT_RCV,
                     "bbr2 filled pipe, max_bw=%" PRIu64, bbr->max_bw);
+    // Uberariy remove later!!!:
+    ngtcp2_log_info(bbr->ccb.log, NGTCP2_LOG_EVENT_RCV,
+                    "bbrfrcst ultra_bw=%" PRIu64, bbr->ultra_bw);
   }
 }
 
@@ -1084,6 +1105,30 @@ static void bbr_update_min_rtt(ngtcp2_bbr2_cc *bbr, const ngtcp2_cc_ack *ack,
   }
 }
 
+static void bbr_check_forecast(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
+                               ngtcp2_tstamp ts) {
+  // We don't want to enter forecast from these states for some reasons
+  fprintf(stderr, "Uberariy: forecast enter flag=%d\n". bbr->forecast_enter_flag);
+  if ((bbr->forecast_enter_flag == 2) &&
+      bbr->state != NGTCP2_BBR2_STATE_STARTUP &&
+      bbr->state != NGTCP2_BBR2_STATE_DRAIN &&
+      bbr->state != NGTCP2_BBR2_STATE_PROBE_RTT &&
+      bbr->state != NGTCP2_BBRFRCST_STATE_FRCST) {
+    bbr->forecast_enter_flag = 0;
+    bbr_enter_forecast(bbr);
+    bbr_save_cwnd(bbr, cstat);
+
+    // Questionable..
+    //bbr->ack_phase = NGTCP2_BBR2_ACK_PHASE_ACKS_PROBE_STOPPING;
+
+    bbr_start_round(bbr);
+  }
+
+  if (bbr->rst->rs.delivered) {
+    bbr->idle_restart = 0;
+  }
+}
+
 static void bbr_check_probe_rtt(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
                                 ngtcp2_tstamp ts) {
   if (bbr->state != NGTCP2_BBR2_STATE_PROBE_RTT && bbr->probe_rtt_expired &&
@@ -1145,6 +1190,7 @@ static void bbr_check_probe_rtt_done(ngtcp2_bbr2_cc *bbr,
                                      ngtcp2_tstamp ts) {
   if (bbr->probe_rtt_done_stamp != UINT64_MAX &&
       ts > bbr->probe_rtt_done_stamp) {
+    bbr->forecast_enter_flag += 1;
     bbr->probe_rtt_min_stamp = ts;
     bbr_restore_cwnd(bbr, cstat);
     bbr_exit_probe_rtt(bbr, ts);

@@ -110,6 +110,7 @@ typedef struct ngtcp2_bbr2_cc {
   uint64_t loss_round_delivered;
   uint64_t rounds_since_bw_probe;
   uint64_t max_bw;
+  uint64_t ultra_bw;
   uint64_t bw;
   uint64_t cycle_count;
   uint64_t extra_acked;
@@ -137,6 +138,8 @@ typedef struct ngtcp2_bbr2_cc {
   uint64_t prior_inflight_lo;
   uint64_t prior_inflight_hi;
   uint64_t prior_bw_lo;
+
+  int 
 } ngtcp2_bbr2_cc;
 
 int ngtcp2_cc_bbr2_cc_init(ngtcp2_cc *cc, ngtcp2_log *log,
