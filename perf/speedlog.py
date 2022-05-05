@@ -43,7 +43,7 @@ def custom_dict(path, parti, fnd):
     for i in patt.findall(text):
         time_period = int(i[0][:6]) // parti
         if fnd.startswith("loss"):
-            buff = float(i[1].split()[0])*100
+            buff = float(i[1].split()[0])
         else:
             buff = int(i[1].split()[0])
         if (buff >= 10**5) and fnd.startswith("min_rtt"):
@@ -128,7 +128,7 @@ if __name__ == '__main__':
         ld.append(custom_dict(filepath, parti, "rttvar="))
         whatis.append("mean jitter: ")
     if args.loss:
-        ld.append(custom_dict(filepath, parti, "loss="))
+        ld.append(custom_dict(filepath, parti, "loss2="))
         whatis.append("mean loss: ")
     savelist = []
     for i in ld[0].keys():

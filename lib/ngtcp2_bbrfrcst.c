@@ -1021,7 +1021,9 @@ static int is_inflight_too_high(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat, co
   bbr->ultra_loss = (bbr->ultra_loss * 255 + (float)rs->lost * NGTCP2_BBR_LOSS_THRESH_DENOM / rs->tx_in_flight) / 256;
   ngtcp2_log_info(bbr->ccb.log, NGTCP2_LOG_EVENT_RCV, "bbrfrcst updated ultra_loss=%f", bbr->ultra_loss);
   ngtcp2_log_info(bbr->ccb.log, NGTCP2_LOG_EVENT_RCV,
-                    "bbr2 op pckt_loss loss=%f", (float)rs->lost / rs->tx_in_flight);
+                  "bbr2 on pckt_loss loss2=%f", 
+                  (float)rs->lost * NGTCP2_BBR_LOSS_THRESH_DENOM 
+                  / rs->tx_in_flight);
   if (bbr->state == NGTCP2_BBRFRCST_STATE_FRCST) {
     return rs->lost * NGTCP2_BBR_LOSS_THRESH_DENOM >
           rs->tx_in_flight * cstat->frcst_loss;

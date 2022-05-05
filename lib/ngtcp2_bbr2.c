@@ -941,7 +941,9 @@ static int bbr_check_inflight_too_high(ngtcp2_bbr2_cc *bbr,
 
 static int is_inflight_too_high(ngtcp2_bbr2_cc *bbr, const ngtcp2_rs *rs) {
   ngtcp2_log_info(bbr->ccb.log, NGTCP2_LOG_EVENT_RCV,
-                    "bbr2 op pckt_loss loss=%f", (float)rs->lost / rs->tx_in_flight);
+                    "bbr2 on pckt_loss loss2=%f", 
+                    (float)rs->lost * NGTCP2_BBR_LOSS_THRESH_DENOM 
+                    / rs->tx_in_flight);
   return rs->lost * NGTCP2_BBR_LOSS_THRESH_DENOM >
          rs->tx_in_flight * NGTCP2_BBR_LOSS_THRESH_NUMER;
 }
