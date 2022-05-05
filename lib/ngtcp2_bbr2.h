@@ -129,6 +129,7 @@ typedef struct ngtcp2_bbr2_cc {
   int probe_rtt_expired;
   ngtcp2_duration probe_rtt_min_delay;
   ngtcp2_tstamp probe_rtt_min_stamp;
+  ngtcp2_tstamp forecast_good_stamp;
   int in_loss_recovery;
   int packet_conservation;
   uint64_t max_inflight;
