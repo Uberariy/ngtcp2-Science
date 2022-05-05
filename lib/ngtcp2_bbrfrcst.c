@@ -92,7 +92,7 @@ static void bbr_check_forecast_done(ngtcp2_bbr2_cc *bbr,
                                     const ngtcp2_cc_ack *ack);
 
 static void bbr_check_forecast(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
-                               ngtcp2_tstamp ts)
+                               ngtcp2_tstamp ts);
 
 static void bbr_update_on_ack(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
                               const ngtcp2_cc_ack *ack, ngtcp2_tstamp ts);
