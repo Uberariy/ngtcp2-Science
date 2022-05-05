@@ -319,6 +319,9 @@ static void bbr_on_init(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
   bbr->ultra_bw = 0;
   bbr->bw = 0;
 
+  // For loss mean loss estimations
+  bbr->ultra_loss = 0;
+
   // This guarantee, that we can wait 5.200 seconds between frcst states 
   if (bbr->state == NGTCP2_BBRFRCST_STATE_FRCST) {
     bbr->forecast_enter_flag = 0;
@@ -994,6 +997,8 @@ static int bbr_check_inflight_too_high(ngtcp2_bbr2_cc *bbr,
 }
 
 static int is_inflight_too_high(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat, const ngtcp2_rs *rs) {
+  bbr->ultra_loss = (bbr->ultra_loss * 255 + (float)rs->lost * NGTCP2_BBR_LOSS_THRESH_DENOM / rs->tx_in_flight) / 256;
+  ngtcp2_log_info(bbr->ccb.log, NGTCP2_LOG_EVENT_RCV, "bbrfrcst updated ultra_loss=%f", bbr->ultra_loss);
   ngtcp2_log_info(bbr->ccb.log, NGTCP2_LOG_EVENT_RCV,
                     "bbr2 op pckt_loss loss=%f", (float)rs->lost / rs->tx_in_flight);
   if (bbr->state == NGTCP2_BBRFRCST_STATE_FRCST) {
@@ -1113,7 +1118,10 @@ static void bbr_check_forecast(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
       bbr->state != NGTCP2_BBR2_STATE_STARTUP &&
       bbr->state != NGTCP2_BBR2_STATE_DRAIN &&
       bbr->state != NGTCP2_BBR2_STATE_PROBE_RTT &&
-      bbr->state != NGTCP2_BBRFRCST_STATE_FRCST) {
+      bbr->state != NGTCP2_BBRFRCST_STATE_FRCST &&
+      (bbr->ultra_loss <= cstat->frcst_loss) &&
+      (abs(cstat->frcst_bw - bbr->ultra_bw) <= (cstat->frcst_bw * 0.2)) &&
+      (abs(cstat->frcst_rtt - cstat->ultra_rtt) <= (cstat->frcst_rtt * 0.2))) {
     bbr->forecast_enter_flag = 0;
     bbr_enter_forecast(bbr);
     bbr_save_cwnd(bbr, cstat);

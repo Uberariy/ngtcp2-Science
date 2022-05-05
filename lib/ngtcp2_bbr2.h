@@ -140,6 +140,7 @@ typedef struct ngtcp2_bbr2_cc {
   uint64_t prior_bw_lo;
 
   int forecast_enter_flag;
+  float ultra_loss;
 } ngtcp2_bbr2_cc;
 
 int ngtcp2_cc_bbr2_cc_init(ngtcp2_cc *cc, ngtcp2_log *log,
