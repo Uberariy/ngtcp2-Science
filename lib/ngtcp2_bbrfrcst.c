@@ -499,8 +499,8 @@ static void bbr_check_forecast_done(ngtcp2_bbr2_cc *bbr,
        (abs(cstat->frcst_bw - bbr->ultra_bw) > (cstat->frcst_bw * 0.2)) ||
        (abs(cstat->frcst_rtt - cstat->ultra_rtt) > (cstat->frcst_rtt * 0.2))) {
       // One of parameter's gone wild
-      if (ts > bbr->forecast_good_stamp + NGTCP2_BBRFRCST_FAILURE_INTERVAL) && 
-         (ts > bbr->probe_rtt_min_stamp + NGTCP2_BBR_PROBE_RTT_INTERVAL) {
+      if ((ts > bbr->forecast_good_stamp + NGTCP2_BBRFRCST_FAILURE_INTERVAL) &&
+         (ts > bbr->probe_rtt_min_stamp + NGTCP2_BBR_PROBE_RTT_INTERVAL)) {
         bbr_enter_probe_rtt(bbr);
         bbr_save_cwnd(bbr, cstat);
 
