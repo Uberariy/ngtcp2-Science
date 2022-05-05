@@ -1108,7 +1108,7 @@ static void bbr_update_min_rtt(ngtcp2_bbr2_cc *bbr, const ngtcp2_cc_ack *ack,
 static void bbr_check_forecast(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
                                ngtcp2_tstamp ts) {
   // We don't want to enter forecast from these states for some reasons
-  fprintf(stderr, "Uberariy: forecast enter flag=%d\n". bbr->forecast_enter_flag);
+  fprintf(stderr, "Uberariy: forecast enter flag=%d\n", bbr->forecast_enter_flag);
   if ((bbr->forecast_enter_flag == 2) &&
       bbr->state != NGTCP2_BBR2_STATE_STARTUP &&
       bbr->state != NGTCP2_BBR2_STATE_DRAIN &&
