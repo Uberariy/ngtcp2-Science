@@ -1147,7 +1147,6 @@ static void bbr_check_forecast(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
       (abs(cstat->frcst_rtt - cstat->ultra_rtt) <= (cstat->frcst_rtt * 0.2))) {
     bbr->forecast_enter_flag = 0;
     bbr_enter_forecast(bbr, ts);
-    bbr_save_cwnd(bbr, cstat);
 
     // Questionable..
     //bbr->ack_phase = NGTCP2_BBR2_ACK_PHASE_ACKS_PROBE_STOPPING;

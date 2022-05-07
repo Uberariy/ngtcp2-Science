@@ -37,7 +37,7 @@ def custom_dict(path, parti, fnd):
     with open(path, 'r') as f:
         text = f.read()
     '''This reg. expr works for less than 10K seconds experiments'''
-    patt = re.compile(r"I00(.*)[^I00]*"+fnd+"(.*)\n")
+    patt = re.compile(r"I00(.*)[^I00]*"+fnd+r"(.*)\n")
     d = defaultdict(int)
     cd = defaultdict(int)
     for i in patt.findall(text):
@@ -52,8 +52,12 @@ def custom_dict(path, parti, fnd):
         else:
             d[time_period] += buff
             cd[time_period] += 1
-    for i in d.keys():
-        d[i] = d[i] // cd[i]
+    if fnd.startswith("loss"):
+        for i in d.keys():
+            d[i] = d[i] / cd[i]
+    else:
+        for i in d.keys():
+            d[i] = d[i] // cd[i]  
     return(d)
 
 
