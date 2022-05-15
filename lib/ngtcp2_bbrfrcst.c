@@ -524,10 +524,10 @@ static void bbr_on_transmit(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
 
 static void bbr_update_on_ack(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
                               const ngtcp2_cc_ack *ack, ngtcp2_tstamp ts) {
-  fprintf(stderr, "Before update on ack: cwnd %ld, cwnd_gain %f, pacing_rate %f, pacing_gain %f\n", cstat->cwnd, bbr->cwnd_gain, cstat->pacing_rate, bbr->pacing_gain);
+  //fprintf(stderr, "Before update on ack: cwnd %ld, cwnd_gain %f, pacing_rate %f, pacing_gain %f\n", cstat->cwnd, bbr->cwnd_gain, cstat->pacing_rate, bbr->pacing_gain);
   bbr_update_model_and_state(bbr, cstat, ack, ts);
   bbr_update_control_parameters(bbr, cstat, ack);
-  fprintf(stderr, "Apres update on ack:  cwnd %ld, cwnd_gain %f, pacing_rate %f, pacing_gain %f\n", cstat->cwnd, bbr->cwnd_gain, cstat->pacing_rate, bbr->pacing_gain);
+  //fprintf(stderr, "Apres update on ack:  cwnd %ld, cwnd_gain %f, pacing_rate %f, pacing_gain %f\n", cstat->cwnd, bbr->cwnd_gain, cstat->pacing_rate, bbr->pacing_gain);
 }
 
 static void bbr_update_model_and_state(ngtcp2_bbr2_cc *bbr,
@@ -1136,7 +1136,7 @@ static void bbr_update_min_rtt(ngtcp2_bbr2_cc *bbr, const ngtcp2_cc_ack *ack,
 static void bbr_check_forecast(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
                                ngtcp2_tstamp ts) {
   // We don't want to enter forecast from these states for some reasons
-  fprintf(stderr, "Trying to enter forecast:   flag=%d,    ultra_loss=%f,   ultra_bw=%" PRIu64 "\n", bbr->forecast_enter_flag, bbr->ultra_loss, bbr->ultra_bw);
+  //fprintf(stderr, "Trying to enter forecast:   flag=%d,    ultra_loss=%f,   ultra_bw=%" PRIu64 "\n", bbr->forecast_enter_flag, bbr->ultra_loss, bbr->ultra_bw);
   if ((bbr->forecast_enter_flag == 2) &&
       bbr->state != NGTCP2_BBR2_STATE_STARTUP &&
       bbr->state != NGTCP2_BBR2_STATE_DRAIN &&
@@ -1421,7 +1421,7 @@ static void bbr_set_cwnd(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat,
   bbr_bound_cwnd_for_forecast(bbr, cstat);
   bbr_bound_cwnd_for_probe_rtt(bbr, cstat);
   bbr_bound_cwnd_for_model(bbr, cstat);
-  fprintf(stderr, "Curr cwnd: %ld\n", cstat->cwnd);
+  //fprintf(stderr, "Curr cwnd: %ld\n", cstat->cwnd);
 }
 
 static void bbr_bound_cwnd_for_model(ngtcp2_bbr2_cc *bbr,
@@ -1462,7 +1462,7 @@ static void bbr_set_send_quantum(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat) {
                                                     ? NGTCP2_MILLISECONDS
                                                     : bbr->min_rtt));
   (void)bbr;
-  fprintf(stderr, "Uberariy: Set send quantum: %ld\n", cstat->send_quantum);
+  //fprintf(stderr, "Uberariy: Set send quantum: %ld\n", cstat->send_quantum);
 
   cstat->send_quantum = ngtcp2_min(send_quantum, 64 * 1024);
   cstat->send_quantum =
