@@ -1384,7 +1384,7 @@ static void bbr_bound_cwnd_for_forecast(ngtcp2_bbr2_cc *bbr,
                                         ngtcp2_conn_stat *cstat) {
                                           // Uberariy: Try to multiply on this number
                                           // * NGTCP2_BBR_HEADROOM_NUMER / GTCP2_BBR_HEADROOM_DENOM                                        
-  uint64_t forecast_cwnd = (double)cstat->frcst_bw * cstat->frcst_rtt * 
+  uint64_t forecast_cwnd = (double)cstat->frcst_bw * cstat->frcst_rtt * 0.85 *
   100 / (100 + (100 * cstat->frcst_loss) / (100 - cstat->frcst_loss)) 
   / NGTCP2_SECONDS;
   

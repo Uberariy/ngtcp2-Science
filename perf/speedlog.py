@@ -38,15 +38,20 @@ def custom_dict(path, parti, fnd):
         text = f.read()
     '''This reg. expr works for less than 10K seconds experiments'''
     patt = re.compile(r"I00(.*)[^I00]*"+fnd+r"(.*)\n")
-    d = defaultdict(int)
+    if fnd.startswith("bbr2 "):
+        d = defaultdict(str)
+    else:
+        d = defaultdict(int)
     cd = defaultdict(int)
     for i in patt.findall(text):
         time_period = int(i[0][:6]) // parti
         if fnd.startswith("loss"):
             buff = float(i[1].split()[0])
+        elif fnd.startswith("bbr2 "):
+            buff = str(i[1].split()[0]) + ","
         else:
             buff = int(i[1].split()[0])
-        if (buff >= 10**5) and fnd.startswith("min_rtt"):
+        if fnd.startswith("min_rtt") and (buff >= 10**5):
             '''We encouter MAXINT, because no rtt is calculated'''
             d[time_period] += 0
         else:
@@ -55,7 +60,7 @@ def custom_dict(path, parti, fnd):
     if fnd.startswith("loss"):
         for i in d.keys():
             d[i] = d[i] / cd[i]
-    else:
+    elif not fnd.startswith("bbr2 "):
         for i in d.keys():
             d[i] = d[i] // cd[i]  
     return(d)
@@ -88,6 +93,9 @@ arg_parser.add_argument('--json', dest='json', type=str, default='',
                         help='Save all the data in json format file with file path inserted (--json=PATH)')
 arg_parser.add_argument('--yaml', dest='yaml', type=str, default='', 
                         help='Save all the data in json format file with file path inserted (--yaml=PATH)')
+
+arg_parser.add_argument('--state', dest='state', type=str, default='', 
+                        help='Print states, that algo is in')
 
 arg_parser.add_argument('path', metavar='PATH', nargs='?', type=str, default='',
                         help='Path of file with stderr of ngtcp2 client|server.')
@@ -134,6 +142,21 @@ if __name__ == '__main__':
     if args.loss:
         ld.append(custom_dict(filepath, parti, "loss2="))
         whatis.append("mean loss: ")
+    slaokay = True
+    if args.state:
+        tmpd1 = custom_dict(filepath, parti, "bbr2 enter ")
+        tmpd2 = custom_dict(filepath, parti, "bbr2 start ")
+        # print(tmpd1, tmpd2)
+        for i, j in tmpd1.items():
+            tmpd2[i] += j    
+        for i in range(1, len(ld[0])):
+            if i not in tmpd2.keys():
+                tmpd2[i] = "== || ==" # tmpd2[i-1].split(',')[-2]+','
+            elif tmpd2[i] != "Forecast,":
+                slaokay = False
+        ld.append(tmpd2)
+        # print(tmpd1, tmpd2)
+        whatis.append("states: ")
     savelist = []
     for i in ld[0].keys():
         pri = f"Second {i*parti/1000}-{(i+1)*parti/1000}:"
@@ -157,6 +180,12 @@ if __name__ == '__main__':
             print(f"Mean speed {sum([*ld[0].values()][:-1])/len([*ld[0].values()][:-1])} {args.mode.lower()}s per {parti/1000} seconds")
         else:
             print(f"Mean speed {[*ld[0].values()][0]} {args.mode.lower()}s per {parti/1000} seconds")
+        if args.state:
+            print("If it is bbrfrcst: ", end="")
+            if slaokay:
+                print("SLA IS OKAY")
+            else:
+                print("BAD SLA!")
     if args.json != '':
         with open(args.json, 'w') as f:
             json.dump(savelist, f, indent = 6)
