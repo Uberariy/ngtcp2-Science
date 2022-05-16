@@ -102,12 +102,16 @@ def get_data(path):
                 anno_d[(p_rtt, p_bw)]["bbr_max_real_bw"] = real_bbr_bw
         else:
             anno_d[(p_rtt, p_bw)]["bbr_max_real_bw"] = real_bbr_bw
-        anno_d[(p_rtt, p_bw)]["annotation"] = "SLA: {}/{}\nChannel loss: {}\nBBRFRCST speed: {}\nBBR2 speed:         {}".format(
+        anno_d[(p_rtt, p_bw)]["annotation"] = "SLA: {}/{}\nChannel loss: {}\nBBRFRCST speed: {}\n(min: {}, max: {})\nBBR2 speed:         {}\n(min: {}, max: {})".format(
             int(sla_d[(p_rtt, p_bw)] * anno_d[(p_rtt, p_bw)]["samples"]),
             anno_d[(p_rtt, p_bw)]["samples"],
             anno_d[(p_rtt, p_bw)]["p_loss"],
             convert_speed(anno_d[(p_rtt, p_bw)]["real_bw"]),
-            convert_speed(anno_d[(p_rtt, p_bw)]["bbr_real_bw"])
+            convert_speed(anno_d[(p_rtt, p_bw)]["min_real_bw"]),
+            convert_speed(anno_d[(p_rtt, p_bw)]["max_real_bw"]),
+            convert_speed(anno_d[(p_rtt, p_bw)]["bbr_real_bw"]),
+            convert_speed(anno_d[(p_rtt, p_bw)]["bbr_min_real_bw"]),
+            convert_speed(anno_d[(p_rtt, p_bw)]["bbr_max_real_bw"]),
         )
         # print(anno_d[(p_rtt, p_bw)]["annotation"])
     return sla_d, anno_d
