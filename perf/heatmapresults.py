@@ -144,8 +144,8 @@ def get_data(paths):
 
 #%%
 # INPUT:
-statfiles = ["perfres_i1_1dot15", "perfres_bbr2_lost0.1"] # Name of file
-# statfiles = ["perfres_i1_1dot20", "perfres_bbr2_lost0.1"] # Name of file
+# statfiles = ["perfres_i1_1dot15", "perfres_bbr2_lost0.1"] # Name of file
+statfiles = ["perfres_i1_1dot20", "perfres_bbr2_lost0.1"] # Name of file
 
 sla, anno = get_data(statfiles)
 
