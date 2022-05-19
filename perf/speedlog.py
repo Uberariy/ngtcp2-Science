@@ -52,7 +52,7 @@ def custom_dict(path, parti, fnd):
         else:
             buff = int(i[1].split()[0])
         if fnd.startswith("min_rtt") and (buff >= 10**5):
-            '''We encouter MAXINT, because no rtt is calculated'''
+            '''We encounter MAXINT, because no rtt is calculated'''
             d[time_period] += 0
         else:
             d[time_period] += buff
@@ -71,23 +71,23 @@ arg_parser = argparse.ArgumentParser(prog='speedlog',
                                      'Note, that total packets calculated can be more, than content delivered, '
                                      'because we calculate content size of packets, that include content. ')                                     
 arg_parser.add_argument('-v', '--version', action='version', version='%(prog)s 2.1')
-arg_parser.add_argument('--lrtt', dest='lrtt', type=bool, default=False, 
+arg_parser.add_argument('--lrtt', action='store_true', 
                         help='Use this parameter if you want mean latest rtt to be calculated. '
                              'Latest rtt is rtt from each packet. '
                              'It is better to work with srtt, because we dont include ack delays there')
-arg_parser.add_argument('--srtt', dest='srtt', type=bool, default=False, 
+arg_parser.add_argument('--srtt', action='store_true', 
                         help='Use this parameter if you want mean smoothed rtt to be calculated. '
                              'By default srtt is calculated in agent with 7/8 of previous value, and 1/8 of new '
                              'depending on pckts recieved')
-arg_parser.add_argument('--mrtt', dest='mrtt', type=bool, default=False, 
+arg_parser.add_argument('--mrtt', action='store_true', 
                         help='Use this parameter if you want mean min rtt to be calculated'
                              'Min rtt is congestion controller estimate on what min_rtt is')
-arg_parser.add_argument('--bw', dest='bw', type=bool, default=False, 
+arg_parser.add_argument('--bw', action='store_true', 
                         help='Use this parameter if you want mean bw to be calculated. '
                              'Max bw is congestion controller estimate on what max_bw is')
-arg_parser.add_argument('--jitt', dest='jitt', type=bool, default=False, 
+arg_parser.add_argument('--jitt', action='store_true', 
                         help='Use this parameter if you want mean jitter to be calculated')
-arg_parser.add_argument('--loss', dest='loss', type=bool, default=False, 
+arg_parser.add_argument('--loss', action='store_true', 
                         help='Use this parameter if you want mean loss percent to be calculated. ')
 arg_parser.add_argument('--json', dest='json', type=str, default='', 
                         help='Save all the data in json format file with file path inserted (--json=PATH)')
@@ -177,6 +177,7 @@ if __name__ == '__main__':
         print("")
     if ld[0]:
         if len(ld[0].values()) != 1:
+            '''We count mean speed ignoring last sample, because we are not sure if last period of time lasted completel'''
             print(f"Mean speed {sum([*ld[0].values()][:-1])/len([*ld[0].values()][:-1])} {args.mode.lower()}s per {parti/1000} seconds")
         else:
             print(f"Mean speed {[*ld[0].values()][0]} {args.mode.lower()}s per {parti/1000} seconds")
