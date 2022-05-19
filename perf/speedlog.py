@@ -94,7 +94,7 @@ arg_parser.add_argument('--json', dest='json', type=str, default='',
 arg_parser.add_argument('--yaml', dest='yaml', type=str, default='', 
                         help='Save all the data in json format file with file path inserted (--yaml=PATH)')
 
-arg_parser.add_argument('--state', dest='state', type=str, default='', 
+arg_parser.add_argument('--state', action='store_true',
                         help='Print states, that algo is in')
 
 arg_parser.add_argument('path', metavar='PATH', nargs='?', type=str, default='',
