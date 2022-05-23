@@ -70,6 +70,17 @@ def get_data(paths):
         sla_d[(p_rtt, p_bw)] = sla_d[(p_rtt, p_bw)] * (anno_d[(p_rtt, p_bw)]["samples"] - 1) / anno_d[(p_rtt, p_bw)]["samples"]
         if i[3] == "SLA IS OKAY":
             sla_d[(p_rtt, p_bw)] += 1 / anno_d[(p_rtt, p_bw)]["samples"]
+        anno_d[(p_rtt, p_bw)]["annotation4"] = "SLA: {}/{}\nChannel loss: {}\nBBRFRCST speed: {}".format(
+            int(sla_d[(p_rtt, p_bw)] * anno_d[(p_rtt, p_bw)]["samples"]),
+            anno_d[(p_rtt, p_bw)]["samples"],
+            anno_d[(p_rtt, p_bw)]["p_loss"],
+            convert_speed(anno_d[(p_rtt, p_bw)]["real_bw"]),
+        )
+        anno_d[(p_rtt, p_bw)]["annotation3"] = "SLA: {}/{}\nChannel loss: {}".format(
+            int(sla_d[(p_rtt, p_bw)] * anno_d[(p_rtt, p_bw)]["samples"]),
+            anno_d[(p_rtt, p_bw)]["samples"],
+            anno_d[(p_rtt, p_bw)]["p_loss"],
+        )
     patt = re.compile(r"BBR2experiment. (.*)(\n|.)*?Mean speed (.*)\n")
     for i in patt.findall(maintext):
         # print(i)
@@ -127,25 +138,15 @@ def get_data(paths):
             convert_speed(anno_d[(p_rtt, p_bw)]["bbr_min_real_bw"]),
             convert_speed(anno_d[(p_rtt, p_bw)]["bbr_max_real_bw"]),
         )
-        anno_d[(p_rtt, p_bw)]["annotation3"] = "SLA: {}/{}\nChannel loss: {}\nBBRFRCST speed: {}\n(min: {}, max: {})\nBBR2 speed:         {}\n(min: {}, max: {})".format(
-            int(sla_d[(p_rtt, p_bw)] * anno_d[(p_rtt, p_bw)]["samples"]),
-            anno_d[(p_rtt, p_bw)]["samples"],
-            anno_d[(p_rtt, p_bw)]["p_loss"],
-            convert_speed(anno_d[(p_rtt, p_bw)]["real_bw"]),
-            convert_speed(anno_d[(p_rtt, p_bw)]["min_real_bw"]),
-            convert_speed(anno_d[(p_rtt, p_bw)]["max_real_bw"]),
-            convert_speed(anno_d[(p_rtt, p_bw)]["bbr_real_bw"]),
-            convert_speed(anno_d[(p_rtt, p_bw)]["bbr_min_real_bw"]),
-            convert_speed(anno_d[(p_rtt, p_bw)]["bbr_max_real_bw"]),
-        )
         # print(anno_d[(p_rtt, p_bw)]["annotation"])
     return sla_d, anno_d
 
 
 #%%
 # INPUT:
-# statfiles = ["perfres_i1_1dot15", "perfres_bbr2_lost0.1"] # Name of file
-statfiles = ["perfres_i1_1dot20", "perfres_bbr2_lost0.1"] # Name of file
+# statfiles = ["perfres_i2_loss0dot5"] # Name of file
+# statfiles = ["perfres_i2_loss1", "perfres_i2_loss0dot5", "perfres_i2_loss2", "perfres_i2_loss2_part2_v2", "perfres_i2_loss4", "perfres_i2_loss0dot1"] # Name of file
+statfiles = ["perfres_i3_2"]
 
 sla, anno = get_data(statfiles)
 
@@ -155,7 +156,7 @@ bws = set()
 for i in sla.keys():
     rtts.add(i[0])
     bws.add(i[1])
-l_rtts = sorted(list(rtts))
+l_rtts = sorted(list(rtts))[::-1]
 l_bws = sorted(list(bws))
 pd_sla = []
 pd_anno = []
@@ -164,9 +165,9 @@ for i in l_rtts:
     tmp_a_l = []
     for j in l_bws:
         tmp_l.append(sla[(i, j)])
-        if "annotation1" in anno[(i, j)]:
+        if "annotation3" in anno[(i, j)]:
             tmp_l[-1] += 1
-            tmp_a_l.append(anno[(i, j)]["annotation1"])
+            tmp_a_l.append(anno[(i, j)]["annotation3"])
         else:
             tmp_a_l.append("No data")
     pd_anno.append(tmp_a_l)
@@ -174,12 +175,12 @@ for i in l_rtts:
 pd2_sla = pd.DataFrame(pd_sla, columns = l_bws, index = l_rtts)
 pd2_anno = pd.DataFrame(pd_anno)
 # print(pd_anno, pd_sla, np.array(pd_sla).size, np.array(pd_anno).size)
-pd_anno = pd.Series(anno).reset_index()
-plt.figure(figsize=(17, 13))
+# pd_anno = pd.Series(anno).reset_index()
+plt.figure(figsize=(18, 12))
 sns.heatmap(pd2_sla, annot=pd2_anno, fmt="", center=0, linewidths=.5)
-plt.title('SLA Goodness Statistics')
-plt.xlabel('Channel BW')
-plt.ylabel('Channel RTT')
+plt.title('SLA Goodness Statistics: FrcstR = 120 Mbit/s, FrcstRTT = 100 ms, FrcstLoss = 0.1')
+plt.xlabel('Channel BW - FrcstBW')
+plt.ylabel('Channel RTT - FrcstRTT')
 
 # %%
 rtts = set()
@@ -187,7 +188,7 @@ bws = set()
 for i in sla.keys():
     rtts.add(i[0])
     bws.add(i[1])
-l_rtts = sorted(list(rtts))
+l_rtts = sorted(list(rtts))[::-1]
 l_bws = sorted(list(bws))
 pd_sla = []
 pd_anno = []
@@ -195,9 +196,12 @@ for i in l_rtts:
     tmp_l = []
     tmp_a_l = []
     for j in l_bws:
-        if "annotation1" in anno[(i, j)]:
+        if "annotation1" in anno[(i, j)] and sla[(i, j)] == 1:
             tmp_l.append(anno[(i, j)]["real_bw"] / anno[(i, j)]["bbr_real_bw"])
             tmp_a_l.append(anno[(i, j)]["annotation1"])
+        elif "annotation1" in anno[(i, j)] and sla[(i, j)] != 1:
+            tmp_l.append(0)
+            tmp_a_l.append("SLA is not full")
         else:
             tmp_l.append(0)
             tmp_a_l.append("No data")
@@ -206,12 +210,12 @@ for i in l_rtts:
 pd2_sla = pd.DataFrame(pd_sla, columns = l_bws, index = l_rtts)
 pd2_anno = pd.DataFrame(pd_anno)
 # print(pd_anno, pd_sla, np.array(pd_sla).size, np.array(pd_anno).size)
-pd_anno = pd.Series(anno).reset_index()
-plt.figure(figsize=(17, 13))
+# pd_anno = pd.Series(anno).reset_index()
+plt.figure(figsize=(16, 11))
 sns.heatmap(pd2_sla, annot=pd2_anno, fmt="", center=0, linewidths=.5)
 plt.title('BBRFrcst vs BBRv2 Statistics')
-plt.xlabel('Channel BW')
-plt.ylabel('Channel RTT')
+plt.xlabel('Channel BW - FrcstBW')
+plt.ylabel('Channel RTT - FrcstRTT')
 
 
 # %%

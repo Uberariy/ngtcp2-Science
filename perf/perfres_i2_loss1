@@ -777,12 +777,6 @@ Mean speed 6597 bytes per 2.5 seconds
 If it is bbrfrcst: SLA IS OKAY
 
 BBRFRCSTexperiment. p_rtt: 5 p_loss: 1.0 p_bw: 200 bw givens to frcst in megabits: 200
-
-BBRFRCSTexperiment. p_rtt: 5 p_loss: 1.0 p_bw: 240 bw givens to frcst in megabits: 240
-
-BBRFRCSTexperiment. p_rtt: 5 p_loss: 1.0 p_bw: 280 bw givens to frcst in megabits: 280
-
-BBRFRCSTexperiment. p_rtt: 5 p_loss: 1.0 p_bw: 200 bw givens to frcst in megabits: 200
 Estimating speed in BYTE mode:
 Second 0.0-2.5:     bytes sent: 38554105    mean s_rtt: 6           mean max_bw: 31879567   mean loss: 12.680683289889787states: Forecast,       
 Second 2.5-5.0:     bytes sent: 33417371    mean s_rtt: 7           mean max_bw: 56758529   mean loss: 9.948911198149167states: == || ==        

@@ -38,7 +38,7 @@ Second 7.5-10.0:    bytes sent: 21267695    mean s_rtt: 132         mean max_bw:
 Mean speed 36250064.0 bytes per 2.5 seconds
 If it is bbrfrcst: SLA IS OKAY
 
-BBRFRCSTexperiment. p_rtt: 50 p_loss: 0.1 p_bw: 160 bw givens to frcst in megabits: 160
+BBRFRCST inactive experiment. p_rtt: 50 p_loss: 0.1 p_bw: 160 bw givens to frcst in megabits: 160
 Estimating speed in BYTE mode:
 Second 0.0-2.5:     bytes sent: 27681403    mean s_rtt: 68          mean max_bw: 16309929   mean loss: 0.31808766242578473states: Forecast       
 Second 2.5-5.0:     bytes sent: 36142012    mean s_rtt: 61          mean max_bw: 17105730   mean loss: 0.0          states: == || ==        
@@ -47,7 +47,7 @@ Second 7.5-10.0:    bytes sent: 26546827    mean s_rtt: 57          mean max_bw:
 Mean speed 34575542.0 bytes per 2.5 seconds
 If it is bbrfrcst: SLA IS OKAY
 
-BBRFRCSTexperiment. p_rtt: 50 p_loss: 0.1 p_bw: 160 bw givens to frcst in megabits: 160
+BBRFRCST inactive experiment. p_rtt: 50 p_loss: 0.1 p_bw: 160 bw givens to frcst in megabits: 160
 Estimating speed in BYTE mode:
 Second 0.0-2.5:     bytes sent: 35460549    mean s_rtt: 56          mean max_bw: 16720608   mean loss: 0.0          states: Forecast       
 Second 2.5-5.0:     bytes sent: 40677091    mean s_rtt: 53          mean max_bw: 17918741   mean loss: 0.07763195870206487states: == || ==        
@@ -56,7 +56,7 @@ Second 7.5-10.0:    bytes sent: 13447439    mean s_rtt: 52          mean max_bw:
 Mean speed 38878180.0 bytes per 2.5 seconds
 If it is bbrfrcst: SLA IS OKAY
 
-BBRFRCSTexperiment. p_rtt: 20 p_loss: 0.1 p_bw: 160 bw givens to frcst in megabits: 160
+BBRFRCST inactive experiment. p_rtt: 20 p_loss: 0.1 p_bw: 160 bw givens to frcst in megabits: 160
 Estimating speed in BYTE mode:
 Second 0.0-2.5:     bytes sent: 33693901    mean s_rtt: 24          mean max_bw: 18169168   mean loss: 0.0          states: Forecast       
 Second 2.5-5.0:     bytes sent: 35083186    mean s_rtt: 24          mean max_bw: 19605228   mean loss: 0.5589787056892779states: == || ==        
@@ -65,7 +65,7 @@ Second 7.5-10.0:    bytes sent: 30234104    mean s_rtt: 22          mean max_bw:
 Mean speed 34737508.666666664 bytes per 2.5 seconds
 If it is bbrfrcst: SLA IS OKAY
 
-BBRFRCSTexperiment. p_rtt: 20 p_loss: 0.1 p_bw: 160 bw givens to frcst in megabits: 160
+BBRFRCST inactive experiment. p_rtt: 20 p_loss: 0.1 p_bw: 160 bw givens to frcst in megabits: 160
 Estimating speed in BYTE mode:
 Second 0.0-2.5:     bytes sent: 38198825    mean s_rtt: 21          mean max_bw: 19006467   mean loss: 0.4605680307291668states: Forecast       
 Second 2.5-5.0:     bytes sent: 38199906    mean s_rtt: 22          mean max_bw: 19463567   mean loss: 0.10970435050505055states: == || ==        
@@ -98,7 +98,7 @@ Second 15.0-17.5:   bytes sent: 9266987     mean s_rtt: 111         mean max_bw:
 Mean speed 20104499.666666668 bytes per 2.5 seconds
 If it is bbrfrcst: SLA IS OKAY
 
-BBRFRCSTexperiment. p_rtt: 10 p_loss: 0.1 p_bw: 160 bw givens to frcst in megabits: 160
+BBRFRCST inactive experiment. p_rtt: 10 p_loss: 0.1 p_bw: 160 bw givens to frcst in megabits: 160
 Estimating speed in BYTE mode:
 Second 0.0-2.5:     bytes sent: 31875839    mean s_rtt: 12          mean max_bw: 16976228   mean loss: 1.6226354127182026states: Forecast       
 Second 2.5-5.0:     bytes sent: 28447415    mean s_rtt: 14          mean max_bw: 19041110   mean loss: 1.62806117280643states: == || ==        
@@ -108,7 +108,7 @@ Second 10.0-12.5:   bytes sent: 18097593    mean s_rtt: 19          mean max_bw:
 Mean speed 29818920.25 bytes per 2.5 seconds
 If it is bbrfrcst: BAD SLA!
 
-BBRFRCSTexperiment. p_rtt: 10 p_loss: 0.1 p_bw: 160 bw givens to frcst in megabits: 160
+BBRFRCST inactive experiment. p_rtt: 10 p_loss: 0.1 p_bw: 160 bw givens to frcst in megabits: 160
 Estimating speed in BYTE mode:
 Second 0.0-2.5:     bytes sent: 31103932    mean s_rtt: 13          mean max_bw: 17353138   mean loss: 1.6554340259481042states: Forecast       
 Second 2.5-5.0:     bytes sent: 32916253    mean s_rtt: 12          mean max_bw: 20070606   mean loss: 1.7526176571428567states: == || ==        
@@ -212,7 +212,7 @@ Second 5.0-7.5:     bytes sent: 25057019    mean s_rtt: 127         mean max_bw:
 Mean speed 52840114.5 bytes per 2.5 seconds
 If it is bbrfrcst: SLA IS OKAY
 
-BBRFRCSTexperiment. p_rtt: 200 p_loss: 0.1 p_bw: 320 bw givens to frcst in megabits: 320
+BBRFRCST inactive experiment. p_rtt: 200 p_loss: 0.1 p_bw: 320 bw givens to frcst in megabits: 320
 Estimating speed in BYTE mode:
 Second 0.0-2.5:     bytes sent: 6257788     mean s_rtt: 213         mean max_bw: 4661761    mean loss: 0            states: Forecast,       
 Second 2.5-5.0:     bytes sent: 36529972    mean s_rtt: 232         mean max_bw: 20481217   mean loss: 0            states: == || ==        
@@ -223,7 +223,7 @@ Second 12.5-15.0:   bytes sent: 30599       mean s_rtt: 508         mean max_bw:
 Mean speed 26758479.0 bytes per 2.5 seconds
 If it is bbrfrcst: BAD SLA!
 
-BBRFRCSTexperiment. p_rtt: 200 p_loss: 0.1 p_bw: 320 bw givens to frcst in megabits: 320
+BBRFRCST inactive experiment. p_rtt: 200 p_loss: 0.1 p_bw: 320 bw givens to frcst in megabits: 320
 Estimating speed in BYTE mode:
 Second 0.0-2.5:     bytes sent: 4390883     mean s_rtt: 210         mean max_bw: 2290393    mean loss: 0            states: Forecast,       
 Second 2.5-5.0:     bytes sent: 35516613    mean s_rtt: 242         mean max_bw: 22915887   mean loss: 0            states: == || ==        
@@ -394,7 +394,7 @@ Second 7.5-10.0:    bytes sent: 31309267    mean s_rtt: 54          mean max_bw:
 Mean speed 33017214.0 bytes per 2.5 seconds
 If it is bbrfrcst: SLA IS OKAY
 
-BBRFRCSTexperiment. p_rtt: 100 p_loss: 0.1 p_bw: 80 bw givens to frcst in megabits: 80
+BBRFRCST inactive experiment. p_rtt: 100 p_loss: 0.1 p_bw: 80 bw givens to frcst in megabits: 80
 Estimating speed in BYTE mode:
 Second 0.0-2.5:     bytes sent: 17538122    mean s_rtt: 105         mean max_bw: 8149482    mean loss: 0.0          states: Forecast,       
 Second 2.5-5.0:     bytes sent: 21151270    mean s_rtt: 104         mean max_bw: 8775715    mean loss: 0.0          states: == || ==        
@@ -406,7 +406,7 @@ Second 15.0-17.5:   bytes sent: 8812407     mean s_rtt: 103         mean max_bw:
 Mean speed 20187839.333333332 bytes per 2.5 seconds
 If it is bbrfrcst: SLA IS OKAY
 
-BBRFRCSTexperiment. p_rtt: 100 p_loss: 0.1 p_bw: 80 bw givens to frcst in megabits: 80
+BBRFRCST inactive experiment. p_rtt: 100 p_loss: 0.1 p_bw: 80 bw givens to frcst in megabits: 80
 Estimating speed in BYTE mode:
 Second 0.0-2.5:     bytes sent: 14412299    mean s_rtt: 124         mean max_bw: 7016467    mean loss: 0.0          states: Forecast,       
 Second 2.5-5.0:     bytes sent: 17606836    mean s_rtt: 121         mean max_bw: 8261763    mean loss: 0.0          states: == || ==        
@@ -418,7 +418,7 @@ Second 15.0-17.5:   bytes sent: 14499021    mean s_rtt: 127         mean max_bw:
 Mean speed 19232132.333333332 bytes per 2.5 seconds
 If it is bbrfrcst: SLA IS OKAY
 
-BBRFRCSTexperiment. p_rtt: 100 p_loss: 0.1 p_bw: 160 bw givens to frcst in megabits: 160
+BBRFRCST inactive experiment. p_rtt: 100 p_loss: 0.1 p_bw: 160 bw givens to frcst in megabits: 160
 Estimating speed in BYTE mode:
 Second 0.0-2.5:     bytes sent: 28221552    mean s_rtt: 124         mean max_bw: 15822270   mean loss: 0.056890999999999886states: Forecast,       
 Second 2.5-5.0:     bytes sent: 40934940    mean s_rtt: 107         mean max_bw: 17351311   mean loss: 0.05138355068363976states: == || ==        
@@ -427,7 +427,7 @@ Second 7.5-10.0:    bytes sent: 19798803    mean s_rtt: 115         mean max_bw:
 Mean speed 36712225.666666664 bytes per 2.5 seconds
 If it is bbrfrcst: SLA IS OKAY
 
-BBRFRCSTexperiment. p_rtt: 100 p_loss: 0.1 p_bw: 160 bw givens to frcst in megabits: 160
+BBRFRCST inactive experiment. p_rtt: 100 p_loss: 0.1 p_bw: 160 bw givens to frcst in megabits: 160
 Estimating speed in BYTE mode:
 Second 0.0-2.5:     bytes sent: 31892808    mean s_rtt: 109         mean max_bw: 16021481   mean loss: 0.18999172639860168states: Forecast,       
 Second 2.5-5.0:     bytes sent: 40253874    mean s_rtt: 109         mean max_bw: 17190286   mean loss: 0.09822512704174229states: == || ==        
