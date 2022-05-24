@@ -80,8 +80,8 @@ Build from git
    $ make -j$(nproc) check
    $ make install
    $ cd ..
-   $ git clone https://github.com/ngtcp2/ngtcp2
-   $ cd ngtcp2
+   $ git clone https://github.com/Uberariy/ngtcp2-Science
+   $ cd ngtcp2-Science
    $ autoreconf -i
    $ # For Mac users who have installed libev with MacPorts, append
    $ # ',-L/opt/local/lib' to LDFLAGS, and also pass
