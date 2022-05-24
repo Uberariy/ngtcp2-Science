@@ -141,33 +141,6 @@ If it is bbrfrcst: SLA IS OKAY
 
 BBR2experiment. p_rtt: 20 p_loss: 0.1 p_bw: 40
 Estimating speed in BYTE mode:
-Second 0.0-2.5:     bytes sent: 11538370    mean s_rtt: 76          mean max_bw: 0          mean loss: 0            states:                 
-Second 2.5-5.0:     bytes sent: 11688253    mean s_rtt: 85          mean max_bw: 0          mean loss: 0            states: == || ==        
-Second 5.0-7.5:     bytes sent: 11555122    mean s_rtt: 86          mean max_bw: 0          mean loss: 0            states: == || ==        
-Second 7.5-10.0:    bytes sent: 11678002    mean s_rtt: 84          mean max_bw: 0          mean loss: 0            states: == || ==        
-Second 10.0-12.5:   bytes sent: 11458420    mean s_rtt: 57          mean max_bw: 0          mean loss: 0            states: == || ==        
-Second 12.5-15.0:   bytes sent: 10785612    mean s_rtt: 72          mean max_bw: 0          mean loss: 0            states: == || ==        
-Second 15.0-17.5:   bytes sent: 7826807     mean s_rtt: 110         mean max_bw: 0          mean loss: 0            states: == || ==        
-Second 17.5-20.0:   bytes sent: 6427291     mean s_rtt: 148         mean max_bw: 0          mean loss: 0            states: == || ==        
-Second 20.0-22.5:   bytes sent: 6863332     mean s_rtt: 144         mean max_bw: 0          mean loss: 0            states: == || ==        
-Second 22.5-25.0:   bytes sent: 6908235     mean s_rtt: 133         mean max_bw: 0          mean loss: 0            states: == || ==        
-Second 25.0-27.5:   bytes sent: 8459279     mean s_rtt: 108         mean max_bw: 0          mean loss: 0            states: == || ==        
-Second 27.5-30.0:   bytes sent: 7910559     mean s_rtt: 118         mean max_bw: 0          mean loss: 0            states: == || ==        
-Second 30.0-32.5:   bytes sent: 11448549    mean s_rtt: 87          mean max_bw: 0          mean loss: 0            states: == || ==        
-Second 32.5-35.0:   bytes sent: 11536533    mean s_rtt: 78          mean max_bw: 0          mean loss: 0            states: == || ==        
-Second 35.0-37.5:   bytes sent: 11384729    mean s_rtt: 98          mean max_bw: 0          mean loss: 0            states: == || ==        
-Second 37.5-40.0:   bytes sent: 11412687    mean s_rtt: 74          mean max_bw: 0          mean loss: 0            states: == || ==        
-Second 40.0-42.5:   bytes sent: 11363676    mean s_rtt: 86          mean max_bw: 0          mean loss: 0            states: == || ==        
-Second 42.5-45.0:   bytes sent: 10610744    mean s_rtt: 113         mean max_bw: 0          mean loss: 0            states: == || ==        
-Second 45.0-47.5:   bytes sent: 10417437    mean s_rtt: 78          mean max_bw: 0          mean loss: 0            states: == || ==        
-Second 47.5-50.0:   bytes sent: 3651337     mean s_rtt: 73          mean max_bw: 0          mean loss: 0            states: == || ==        
-Mean speed 10067033.52631579 bytes per 2.5 seconds
-If it is bbrfrcst: SLA IS OKAY
-
-BBR2experiment. p_rtt: 20 p_loss: 0.1 p_bw: 40
-
-BBR2experiment. p_rtt: 20 p_loss: 0.1 p_bw: 40
-Estimating speed in BYTE mode:
 Second 0.0-2.5:     bytes sent: 7714454     mean s_rtt: 86          mean max_bw: 0          mean loss: 0            states:                 
 Second 2.5-5.0:     bytes sent: 6957567     mean s_rtt: 102         mean max_bw: 0          mean loss: 0            states: == || ==        
 Second 5.0-7.5:     bytes sent: 6346564     mean s_rtt: 97          mean max_bw: 0          mean loss: 0            states: == || ==        

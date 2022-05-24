@@ -120,7 +120,7 @@ def get_data(paths):
                 anno_d[(p_rtt, p_bw)]["bbr_max_real_bw"] = real_bbr_bw
         else:
             anno_d[(p_rtt, p_bw)]["bbr_max_real_bw"] = real_bbr_bw
-        anno_d[(p_rtt, p_bw)]["annotation1"] = "SLA: {}/{}\nChannel loss: {}\nBBRFRCST speed: {}\nBBR2 speed:         {}".format(
+        anno_d[(p_rtt, p_bw)]["annotation1"] = "SLA: {}/{}\nChannel loss: {}\nBBRFRCST speed: {}\nCUBIC speed:     {}".format(
             int(sla_d[(p_rtt, p_bw)] * anno_d[(p_rtt, p_bw)]["samples"]),
             anno_d[(p_rtt, p_bw)]["samples"],
             anno_d[(p_rtt, p_bw)]["p_loss"],
@@ -146,7 +146,7 @@ def get_data(paths):
 # INPUT:
 # statfiles = ["perfres_i2_loss0dot5"] # Name of file
 # statfiles = ["perfres_i2_loss1", "perfres_i2_loss0dot5", "perfres_i2_loss2", "perfres_i2_loss2_part2_v2", "perfres_i2_loss4", "perfres_i2_loss0dot1"] # Name of file
-statfiles = ["perfres_i3_2"]
+statfiles = ["perfres_i4_bbrfrcst", "perfres_i4_cubic"]
 
 sla, anno = get_data(statfiles)
 
@@ -196,24 +196,30 @@ for i in l_rtts:
     tmp_l = []
     tmp_a_l = []
     for j in l_bws:
-        if "annotation1" in anno[(i, j)] and sla[(i, j)] == 1:
-            tmp_l.append(anno[(i, j)]["real_bw"] / anno[(i, j)]["bbr_real_bw"])
+        if "annotation1" in anno[(i, j)]:# and sla[(i, j)] == 1:
+            tmp_var = anno[(i, j)]["real_bw"] / anno[(i, j)]["bbr_real_bw"]
+            # if tmp_var < 1:
+                # tmp_var *= 4
+                # tmp_var -= 4
+            tmp_l.append(tmp_var)
             tmp_a_l.append(anno[(i, j)]["annotation1"])
-        elif "annotation1" in anno[(i, j)] and sla[(i, j)] != 1:
-            tmp_l.append(0)
-            tmp_a_l.append("SLA is not full")
+        # elif "annotation1" in anno[(i, j)] and sla[(i, j)] != 1:
+            # tmp_l.append(0)
+            # tmp_a_l.append("SLA is not full")
         else:
             tmp_l.append(0)
             tmp_a_l.append("No data")
-    pd_anno.append(tmp_a_l)
-    pd_sla.append(tmp_l)
+    if (tmp_l):
+        pd_anno.append(tmp_a_l)
+        pd_sla.append(tmp_l)
 pd2_sla = pd.DataFrame(pd_sla, columns = l_bws, index = l_rtts)
 pd2_anno = pd.DataFrame(pd_anno)
 # print(pd_anno, pd_sla, np.array(pd_sla).size, np.array(pd_anno).size)
 # pd_anno = pd.Series(anno).reset_index()
-plt.figure(figsize=(16, 11))
-sns.heatmap(pd2_sla, annot=pd2_anno, fmt="", center=0, linewidths=.5)
-plt.title('BBRFrcst vs BBRv2 Statistics')
+plt.figure(figsize=(20, 11))
+cmap = sns.diverging_palette(220, 10, as_cmap=True, s=100).reversed()
+sns.heatmap(pd2_sla, annot=pd2_anno, fmt="", center=1, linewidths=.5, robust=True, cmap=cmap)
+plt.title('BBRFrcst vs CUBIC Statistics')
 plt.xlabel('Channel BW - FrcstBW')
 plt.ylabel('Channel RTT - FrcstRTT')
 
