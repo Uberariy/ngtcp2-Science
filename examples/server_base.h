@@ -172,6 +172,12 @@ struct Config {
   std::queue<ngtcp2_duration> app_state_wait_period_queue;
   // size of a file, that we send
   size_t filesize_zero;
+  /**
+   * Forecast SLA parameters 
+   */
+  ngtcp2_duration frcst_rtt;
+  double frcst_loss;
+  uint64_t frcst_bw;
 };
 
 struct Buffer {

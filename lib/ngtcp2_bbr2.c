@@ -438,6 +438,8 @@ static void bbr_init_pacing_rate(ngtcp2_bbr2_cc *bbr, ngtcp2_conn_stat *cstat) {
 static void bbr_set_pacing_rate_with_gain(ngtcp2_bbr2_cc *bbr,
                                           ngtcp2_conn_stat *cstat,
                                           double pacing_gain) {
+  // ngtcp2_log_info(bbr->ccb.log, NGTCP2_LOG_EVENT_RCV,
+  //                   "Uberariy: bbr2 updated pacing_rate, bbr->bw=%" PRIu64, bbr->bw);
   double rate = pacing_gain * (double)bbr->bw *
                 (100 - NGTCP2_BBR_PACING_MARGIN_PERCENT) / 100 / NGTCP2_SECONDS;
 

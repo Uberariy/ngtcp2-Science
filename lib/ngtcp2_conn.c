@@ -37,6 +37,8 @@
 #include "ngtcp2_path.h"
 #include "ngtcp2_rcvry.h"
 
+#include <stdio.h>
+
 /* NGTCP2_FLOW_WINDOW_RTT_FACTOR is the factor of RTT when flow
    control window auto-tuning is triggered. */
 #define NGTCP2_FLOW_WINDOW_RTT_FACTOR 2
@@ -733,6 +735,9 @@ static void cc_del(ngtcp2_cc *cc, ngtcp2_cc_algo cc_algo,
   case NGTCP2_CC_ALGO_BBR2:
     ngtcp2_cc_bbr2_cc_free(cc, mem);
     break;
+  case NGTCP2_CC_ALGO_BBRFRCST:
+    ngtcp2_cc_bbr2_cc_free(cc, mem);
+    break;
   default:
     break;
   }
@@ -758,6 +763,7 @@ static void conn_reset_conn_stat_cc(ngtcp2_conn *conn,
   cstat->latest_rtt = 0;
   cstat->min_rtt = UINT64_MAX;
   cstat->smoothed_rtt = conn->local.settings.initial_rtt;
+  cstat->ultra_rtt = cstat->frcst_rtt;
   cstat->rttvar = conn->local.settings.initial_rtt / 2;
   cstat->first_rtt_sample_ts = UINT64_MAX;
   cstat->pto_count = 0;
@@ -770,6 +776,9 @@ static void conn_reset_conn_stat_cc(ngtcp2_conn *conn,
   cstat->delivery_rate_sec = 0;
   cstat->pacing_rate = 0.0;
   cstat->send_quantum = SIZE_MAX;
+  cstat->frcst_rtt = 0;
+  cstat->frcst_loss = 0;
+  cstat->frcst_bw = 0;
 }
 
 /*
@@ -1046,6 +1055,11 @@ static int conn_new(ngtcp2_conn **pconn, const ngtcp2_cid *dcid,
   (*pconn)->cstat.max_udp_payload_size =
       (*pconn)->local.settings.max_udp_payload_size;
 
+  (*pconn)->cstat.frcst_rtt = params->frcst_rtt;
+  (*pconn)->cstat.frcst_loss = params->frcst_loss;
+  (*pconn)->cstat.frcst_bw = params->frcst_bw;
+  //fprintf(stderr, "2 Initial parameters %ld %ld\n", (*pconn)->cstat.frcst_bw, params->frcst_bw);
+
   (*pconn)->cstat.bbr2_loss_tresh = params->bbr2_loss_tresh;
   (*pconn)->cstat.bbr2_beta = params->bbr2_beta;
   (*pconn)->cstat.bbr2_probe_rtt_cwnd_gain = params->bbr2_probe_rtt_cwnd_gain;
@@ -1078,6 +1092,14 @@ static int conn_new(ngtcp2_conn **pconn, const ngtcp2_cid *dcid,
     break;
   case NGTCP2_CC_ALGO_BBR2:
     rv = ngtcp2_cc_bbr2_cc_init(&(*pconn)->cc, &(*pconn)->log, &(*pconn)->cstat,
+                                &(*pconn)->rst, settings->initial_ts,
+                                callbacks->rand, &settings->rand_ctx, mem);
+    if (rv != 0) {
+      goto fail_cc_init;
+    }
+    break;
+  case NGTCP2_CC_ALGO_BBRFRCST:
+    rv = ngtcp2_cc_bbrfrcst_cc_init(&(*pconn)->cc, &(*pconn)->log, &(*pconn)->cstat,
                                 &(*pconn)->rst, settings->initial_ts,
                                 callbacks->rand, &settings->rand_ctx, mem);
     if (rv != 0) {
@@ -11660,6 +11682,7 @@ void ngtcp2_conn_update_rtt(ngtcp2_conn *conn, ngtcp2_duration rtt,
   if (cstat->min_rtt == UINT64_MAX) {
     cstat->min_rtt = rtt;
     cstat->smoothed_rtt = rtt;
+    cstat->ultra_rtt = cstat->frcst_rtt;
     cstat->rttvar = rtt / 2;
     cstat->first_rtt_sample_ts = ts;
   } else {
@@ -11690,15 +11713,17 @@ void ngtcp2_conn_update_rtt(ngtcp2_conn *conn, ngtcp2_duration rtt,
                                               : cstat->smoothed_rtt - rtt)) /
                     4;
     cstat->smoothed_rtt = (cstat->smoothed_rtt * 7 + rtt) / 8;
+    cstat->ultra_rtt = (cstat->ultra_rtt * 127 + rtt) / 128;
   }
 
   ngtcp2_log_info(&conn->log, NGTCP2_LOG_EVENT_RCV,
                   "latest_rtt=%" PRIu64 " min_rtt=%" PRIu64
-                  " smoothed_rtt=%" PRIu64 " rttvar=%" PRIu64
-                  " ack_delay=%" PRIu64,
+                  " smoothed_rtt=%" PRIu64 " ultra_rtt=%" PRIu64
+                  " rttvar=%" PRIu64 " ack_delay=%" PRIu64,
                   (uint64_t)(cstat->latest_rtt / NGTCP2_MILLISECONDS),
                   (uint64_t)(cstat->min_rtt / NGTCP2_MILLISECONDS),
                   cstat->smoothed_rtt / NGTCP2_MILLISECONDS,
+                  cstat->ultra_rtt / NGTCP2_MILLISECONDS,
                   cstat->rttvar / NGTCP2_MILLISECONDS,
                   (uint64_t)(ack_delay / NGTCP2_MILLISECONDS));
 

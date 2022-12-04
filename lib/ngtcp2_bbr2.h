@@ -44,6 +44,7 @@ typedef enum ngtcp2_bbr2_state {
   NGTCP2_BBR2_STATE_PROBE_BW_REFILL,
   NGTCP2_BBR2_STATE_PROBE_BW_UP,
   NGTCP2_BBR2_STATE_PROBE_RTT,
+  NGTCP2_BBRFRCST_STATE_FRCST,
 } ngtcp2_bbr2_state;
 
 typedef enum ngtcp2_bbr2_ack_phase {
@@ -109,6 +110,7 @@ typedef struct ngtcp2_bbr2_cc {
   uint64_t loss_round_delivered;
   uint64_t rounds_since_bw_probe;
   uint64_t max_bw;
+  uint64_t ultra_bw;
   uint64_t bw;
   uint64_t cycle_count;
   uint64_t extra_acked;
@@ -127,6 +129,7 @@ typedef struct ngtcp2_bbr2_cc {
   int probe_rtt_expired;
   ngtcp2_duration probe_rtt_min_delay;
   ngtcp2_tstamp probe_rtt_min_stamp;
+  ngtcp2_tstamp forecast_good_stamp;
   int in_loss_recovery;
   int packet_conservation;
   uint64_t max_inflight;
@@ -135,6 +138,10 @@ typedef struct ngtcp2_bbr2_cc {
   uint64_t prior_inflight_lo;
   uint64_t prior_inflight_hi;
   uint64_t prior_bw_lo;
+
+
+  int forecast_enter_flag;
+  float ultra_loss;
 
   // These are InOpSy parameters to control BBRv2 constants.
   // Important to repeat them here, because not all function have
