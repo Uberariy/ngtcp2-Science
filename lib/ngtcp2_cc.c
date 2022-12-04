@@ -25,6 +25,7 @@
 #include "ngtcp2_cc.h"
 
 #include <assert.h>
+#include <stdio.h>
 
 #if defined(_MSC_VER)
 #  include <intrin.h>
@@ -124,6 +125,10 @@ void ngtcp2_cc_reno_cc_on_pkt_acked(ngtcp2_cc *ccx, ngtcp2_conn_stat *cstat,
                     "pkn=%" PRId64 " acked, slow start cwnd=%" PRIu64,
                     pkt->pkt_num, cstat->cwnd);
     return;
+  } else {
+    ngtcp2_log_info(cc->ccb.log, NGTCP2_LOG_EVENT_RCV,
+                    "pkn=%" PRId64 " acked, not slow start cwnd=%" PRIu64,
+                    pkt->pkt_num, cstat->cwnd);
   }
 
   m = cstat->max_udp_payload_size * pkt->pktlen + cc->pending_add;
@@ -187,6 +192,8 @@ void ngtcp2_cc_reno_cc_on_ack_recv(ngtcp2_cc *ccx, ngtcp2_conn_stat *cstat,
                     " min_rtt=%" PRIu64,
                     cc->target_cwnd, cc->max_delivery_rate_sec, cstat->min_rtt);
   }
+  fprintf(stderr, "!CcCwnd:%ld\n", (long)cstat->cwnd);
+  // fprintf(stderr, "CC Cwnd: %ld\n", (long)cstat->cwnd);
 }
 
 void ngtcp2_cc_reno_cc_reset(ngtcp2_cc *ccx, ngtcp2_conn_stat *cstat,
@@ -544,6 +551,8 @@ void ngtcp2_cc_cubic_cc_on_ack_recv(ngtcp2_cc *ccx, ngtcp2_conn_stat *cstat,
                     " min_rtt=%" PRIu64,
                     cc->target_cwnd, cc->max_delivery_rate_sec, cstat->min_rtt);
   }
+  fprintf(stderr, "!CcCwnd:%ld\n", (long)cstat->cwnd);
+  // fprintf(stderr, "CC Cwnd: %ld\n", (long)cstat->cwnd);
 }
 
 void ngtcp2_cc_cubic_cc_on_pkt_sent(ngtcp2_cc *ccx, ngtcp2_conn_stat *cstat,

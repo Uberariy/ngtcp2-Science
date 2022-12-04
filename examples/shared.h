@@ -61,6 +61,7 @@ constexpr uint32_t QUIC_VER_DRAFT29 = 0xff00001du;
 constexpr uint32_t QUIC_VER_DRAFT30 = 0xff00001eu;
 constexpr uint32_t QUIC_VER_DRAFT31 = 0xff00001fu;
 constexpr uint32_t QUIC_VER_DRAFT32 = 0xff000020u;
+constexpr uint32_t QUIC_VER_V1 = 0x00000001u;
 
 // msghdr_get_ecn gets ECN bits from |msg|.  |family| is the address
 // family from which packet is received.
@@ -73,13 +74,6 @@ void fd_set_ecn(int fd, int family, unsigned int ecn);
 // fd_set_recv_ecn sets socket option to |fd| so that it can receive
 // ECN bits.
 void fd_set_recv_ecn(int fd, int family);
-
-// fd_set_ip_mtu_discover sets IP(V6)_MTU_DISCOVER socket option to
-// |fd|.
-void fd_set_ip_mtu_discover(int fd, int family);
-
-// fd_set_ip_dontfrag sets IP(V6)_DONTFRAG socket option to |fd|.
-void fd_set_ip_dontfrag(int fd, int family);
 
 std::optional<Address> msghdr_get_local_addr(msghdr *msg, int family);
 

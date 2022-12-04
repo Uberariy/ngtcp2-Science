@@ -49,7 +49,8 @@ SERVER_SRCS = \
 	util.cc util.h \
 	shared.cc shared.h \
 	http.cc http.h \
-	network.h
+	network.h \
+	time_logger.h
 
 CLIENT_SRCS = \
 	client_base.cc client_base.h \
@@ -59,7 +60,8 @@ CLIENT_SRCS = \
 	debug.cc debug.h \
 	util.cc util.h \
 	shared.cc shared.h \
-	network.h
+	network.h \
+	time_logger.h
 
 noinst_PROGRAMS =
 
@@ -74,6 +76,7 @@ simpleclient_LDADD = ${LDADD} \
 	@JEMALLOC_LIBS@
 simpleclient_SOURCES = simpleclient.c
 
+client_LDFLAGS = -pthread
 client_CPPFLAGS = ${AM_CPPFLAGS} \
 	@JEMALLOC_CFLAGS@ @OPENSSL_CFLAGS@ -DWITH_EXAMPLE_OPENSSL
 client_LDADD = ${LDADD} \
@@ -86,6 +89,7 @@ client_SOURCES = client.cc client.h ${CLIENT_SRCS} \
 	tls_session_base_openssl.cc tls_session_base_openssl.h \
 	util_openssl.cc
 
+server_LDFLAGS = -pthread
 server_CPPFLAGS = ${client_CPPFLAGS}
 server_LDADD = ${client_LDADD}
 server_SOURCES = server.cc server.h ${SERVER_SRCS} \

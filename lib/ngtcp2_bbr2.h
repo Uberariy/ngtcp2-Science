@@ -44,7 +44,6 @@ typedef enum ngtcp2_bbr2_state {
   NGTCP2_BBR2_STATE_PROBE_BW_REFILL,
   NGTCP2_BBR2_STATE_PROBE_BW_UP,
   NGTCP2_BBR2_STATE_PROBE_RTT,
-  NGTCP2_BBRFRCST_STATE_FRCST,
 } ngtcp2_bbr2_state;
 
 typedef enum ngtcp2_bbr2_ack_phase {
@@ -110,7 +109,6 @@ typedef struct ngtcp2_bbr2_cc {
   uint64_t loss_round_delivered;
   uint64_t rounds_since_bw_probe;
   uint64_t max_bw;
-  uint64_t ultra_bw;
   uint64_t bw;
   uint64_t cycle_count;
   uint64_t extra_acked;
@@ -129,19 +127,24 @@ typedef struct ngtcp2_bbr2_cc {
   int probe_rtt_expired;
   ngtcp2_duration probe_rtt_min_delay;
   ngtcp2_tstamp probe_rtt_min_stamp;
-  ngtcp2_tstamp forecast_good_stamp;
   int in_loss_recovery;
   int packet_conservation;
   uint64_t max_inflight;
   ngtcp2_tstamp congestion_recovery_start_ts;
-  uint64_t congestion_recovery_next_round_delivered;
 
   uint64_t prior_inflight_lo;
   uint64_t prior_inflight_hi;
   uint64_t prior_bw_lo;
 
-  int forecast_enter_flag;
-  float ultra_loss;
+  // These are InOpSy parameters to control BBRv2 constants.
+  // Important to repeat them here, because not all function have
+  // access to cstat.
+  uint64_t bbr2_loss_tresh_numer;
+  uint64_t bbr2_loss_tresh_denom;
+  uint64_t bbr2_beta_numer;
+  uint64_t bbr2_beta_denom;
+  double bbr2_probe_rtt_cwnd_gain;
+  ngtcp2_duration bbr2_probe_rtt_duration;
 } ngtcp2_bbr2_cc;
 
 int ngtcp2_cc_bbr2_cc_init(ngtcp2_cc *cc, ngtcp2_log *log,

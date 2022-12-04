@@ -35,6 +35,7 @@
 #include <string>
 #include <string_view>
 #include <functional>
+#include <queue> // InOpSy
 
 #include <ngtcp2/ngtcp2.h>
 
@@ -138,19 +139,39 @@ struct Config {
   // handshake_timeout is the period of time before giving up QUIC
   // connection establishment.
   ngtcp2_duration handshake_timeout;
-  // preferred_versions includes QUIC versions in the order of
-  // preference.  Server negotiates one of those versions if a client
-  // initially selects a less preferred version.
-  std::vector<uint32_t> preferred_versions;
-  // other_versions includes QUIC versions that are sent in
-  // other_versions field of version_information transport_parameter.
-  std::vector<uint32_t> other_versions;
-  // no_pmtud disables Path MTU Discovery.
-  bool no_pmtud;
-  // Forecast SLA parameters
-  ngtcp2_duration frcst_rtt;
-  double frcst_loss;
-  uint64_t frcst_bw;
+  // speed is InOpSy parameter, that defines maximum data sent per
+  // second. If equals -1, no speed limit is set.
+  size_t speed_limit_per_update;
+  // quit_timeout is the period of time before closing QUIC
+  // connection.
+  ngtcp2_duration quit_timeout;
+  // BBRv2 parameters:
+  double bbr2_loss_tresh;
+  double bbr2_beta;
+  double bbr2_probe_rtt_cwnd_gain;
+  ngtcp2_duration bbr2_probe_rtt_duration;
+  // Flags
+  bool speed_limit_is_set;
+  bool quit_timeout_is_set;
+  bool filesize_zero_is_set;
+  bool inopsy_log_is_set;
+  // Parameters for On-off application
+  enum app_state_type {
+    ON_OFF_NOT_USED,
+    ON_OFF_STATE_SEND,
+    ON_OFF_STATE_WAIT,
+  };
+  app_state_type app_state;
+  // Flag to define, whether we get periods from stack or not
+  // If next flag is set, then we send using periods of time set in schedule,
+  // otherwise we use same periods of times for each sending/waiting period
+  bool app_schedule_used;
+  ngtcp2_duration app_state_send_period;
+  ngtcp2_duration app_state_wait_period;
+  std::queue<ngtcp2_duration> app_state_send_period_queue;
+  std::queue<ngtcp2_duration> app_state_wait_period_queue;
+  // size of a file, that we send
+  size_t filesize_zero;
 };
 
 struct Buffer {

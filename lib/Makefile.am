@@ -62,11 +62,9 @@ OBJECTS = \
 	ngtcp2_cc.c \
 	ngtcp2_bbr.c \
 	ngtcp2_bbr2.c \
-	ngtcp2_bbrfrcst.c \
 	ngtcp2_addr.c \
 	ngtcp2_path.c \
 	ngtcp2_pv.c \
-	ngtcp2_pmtud.c \
 	ngtcp2_version.c \
 	ngtcp2_rst.c \
 	ngtcp2_window_filter.c \
@@ -105,7 +103,6 @@ HFILES = \
 	ngtcp2_addr.h \
 	ngtcp2_path.h \
 	ngtcp2_pv.h \
-	ngtcp2_pmtud.h \
 	ngtcp2_macro.h \
 	ngtcp2_rst.h \
 	ngtcp2_window_filter.h \
