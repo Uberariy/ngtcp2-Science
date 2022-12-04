@@ -76,10 +76,9 @@ def get_data(paths):
             anno_d[(p_rtt, p_bw)]["p_loss"],
             convert_speed(anno_d[(p_rtt, p_bw)]["real_bw"]),
         )
-        anno_d[(p_rtt, p_bw)]["annotation3"] = "SLA: {}/{}\nChannel loss: {}".format(
+        anno_d[(p_rtt, p_bw)]["annotation3"] = "SLA: {}/{}".format(
             int(sla_d[(p_rtt, p_bw)] * anno_d[(p_rtt, p_bw)]["samples"]),
             anno_d[(p_rtt, p_bw)]["samples"],
-            anno_d[(p_rtt, p_bw)]["p_loss"],
         )
     patt = re.compile(r"BBR2experiment. (.*)(\n|.)*?Mean speed (.*)\n")
     for i in patt.findall(maintext):
@@ -144,9 +143,9 @@ def get_data(paths):
 
 #%%
 # INPUT:
-# statfiles = ["perfres_i2_loss0dot5"] # Name of file
+# statfiles = ["perfres_i3_2"] # Name of file
 # statfiles = ["perfres_i2_loss1", "perfres_i2_loss0dot5", "perfres_i2_loss2", "perfres_i2_loss2_part2_v2", "perfres_i2_loss4", "perfres_i2_loss0dot1"] # Name of file
-statfiles = ["perfres_i4_bbrfrcst", "perfres_i4_cubic"]
+statfiles = ["perfres_i4_bbrfrcst", "perfres_i4_bbr2"]
 
 sla, anno = get_data(statfiles)
 
@@ -176,11 +175,16 @@ pd2_sla = pd.DataFrame(pd_sla, columns = l_bws, index = l_rtts)
 pd2_anno = pd.DataFrame(pd_anno)
 # print(pd_anno, pd_sla, np.array(pd_sla).size, np.array(pd_anno).size)
 # pd_anno = pd.Series(anno).reset_index()
-plt.figure(figsize=(18, 12))
-sns.heatmap(pd2_sla, annot=pd2_anno, fmt="", center=0, linewidths=.5)
-plt.title('SLA Goodness Statistics: FrcstR = 120 Mbit/s, FrcstRTT = 100 ms, FrcstLoss = 0.1')
-plt.xlabel('Channel BW - FrcstBW')
-plt.ylabel('Channel RTT - FrcstRTT')
+plt.figure(figsize=(8, 6))
+cmap = sns.diverging_palette(220, 10, as_cmap=True, s=100).reversed()
+ax = sns.heatmap(pd2_sla, annot=pd2_anno, fmt="", center=1.5, linewidths=.5, cmap=cmap)#, cbar_kws={'label': 'colorbar title', 'color': 'white'})
+plt.title('SLA Goodness Statistics', color='white')
+plt.xlabel('Channel BW - FrcstBW', color='white')
+plt.ylabel('Channel RTT - FrcstRTT', color='white')
+# plt.legend(labelcolor='white') # !!!!!!
+ax.set_xticklabels(ax.get_xticklabels(), color='white')
+ax.set_yticklabels(ax.get_yticklabels(), color='white')
+# plt.setp(plt.legend().get_texts(), color='white') # !!!!!!
 
 # %%
 rtts = set()
@@ -215,13 +219,15 @@ for i in l_rtts:
 pd2_sla = pd.DataFrame(pd_sla, columns = l_bws, index = l_rtts)
 pd2_anno = pd.DataFrame(pd_anno)
 # print(pd_anno, pd_sla, np.array(pd_sla).size, np.array(pd_anno).size)
-# pd_anno = pd.Series(anno).reset_index()
-plt.figure(figsize=(20, 11))
+# pd_anno = pd.Series(anno).reset_index() color='green'
+plt.figure(figsize=(17, 12))
 cmap = sns.diverging_palette(220, 10, as_cmap=True, s=100).reversed()
-sns.heatmap(pd2_sla, annot=pd2_anno, fmt="", center=1, linewidths=.5, robust=True, cmap=cmap)
-plt.title('BBRFrcst vs CUBIC Statistics')
-plt.xlabel('Channel BW - FrcstBW')
-plt.ylabel('Channel RTT - FrcstRTT')
+ax = sns.heatmap(pd2_sla, annot=pd2_anno, fmt="", center=1, linewidths=.5, robust=True, cmap=cmap)
+plt.title('BBRFrcst vs BBRv2 Statistics', color='white')
+plt.xlabel('Channel BW - FrcstBW', color='white')
+plt.ylabel('Channel RTT - FrcstRTT', color='white')
+ax.set_xticklabels(ax.get_xticklabels(), color='white')
+ax.set_yticklabels(ax.get_yticklabels(), color='white')
 
 
 # %%
