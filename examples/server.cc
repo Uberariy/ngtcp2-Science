@@ -1620,6 +1620,12 @@ int Handler::init(const Endpoint &ep, const Address &local_addr,
   params.bbr2_probe_rtt_cwnd_gain = config.bbr2_probe_rtt_cwnd_gain;
   params.bbr2_probe_rtt_duration = config.bbr2_probe_rtt_duration;
 
+  // Uberariy
+  params.frcst_rtt = config.frcst_rtt;
+  params.frcst_loss = config.frcst_loss;
+  params.frcst_bw = config.frcst_bw;
+  fprintf(stderr, "3 Initial parameters %ld %ld\n", params.frcst_bw, config.frcst_bw);
+
   if (ocid) {
     params.original_dcid = *ocid;
     params.retry_scid = *scid;
@@ -1857,7 +1863,8 @@ int Handler::write_streams() {
   ngtcp2_path_storage_zero(&prev_ps);
 
   if (config.cc_algo != NGTCP2_CC_ALGO_BBR &&
-      config.cc_algo != NGTCP2_CC_ALGO_BBR2) {
+      config.cc_algo != NGTCP2_CC_ALGO_BBR2 &&
+>     config.cc_algo != NGTCP2_CC_ALGO_BBRFRCST) {
     /* If bbr is chosen, pacing is enabled.  No need to cap the number
        of datagrams to send. */
     max_pktcnt =
@@ -3363,6 +3370,9 @@ void config_set_default(Config &config) {
   config.app_schedule_used = false;
   config.filesize_zero_is_set = false;
   config.inopsy_log_is_set = false;
+  config.frcst_rtt = 0;
+  config.frcst_loss = 0;
+  config.frcst_bw = 0;
 }
 } // namespace
 
@@ -3466,7 +3476,7 @@ Options:
               The maximum length of a dynamically generated content.
               Default: )"
             << util::format_uint_iec(config.max_dyn_length) << R"(
-  --cc=(cubic|reno|bbr|bbr2)
+  --cc=(cubic|reno|bbr|bbr2|bbrfrcst)
               The name of congestion controller algorithm.
               Default: )"
             << util::strccalgo(config.cc_algo) << R"(
@@ -3550,6 +3560,8 @@ Options:
   --inopsy-log
               Use InOpSy type logs, that tend to speed up statistics
               aggregation and simplify stderr output.
+  --bbrfrcst-params=<DURATION>,<P>,<SIZE>
+              Parameters: RTT, Loss, Bandwidth for BBRForecast cc algo.
   -h, --help  Display this help and exit.
 
 ---
@@ -3625,6 +3637,7 @@ int main(int argc, char **argv) {
         {"on-off-periods-json", required_argument, &flag, 31},
         {"filesize-zero", required_argument, &flag, 32},
         {"inopsy-log", no_argument, &flag, 33},
+        {"bbrfrcst-params", required_argument, &flag, 34},
         {nullptr, 0, nullptr, 0}};
 
     auto optidx = 0;
@@ -3815,6 +3828,10 @@ int main(int argc, char **argv) {
           config.cc_algo = NGTCP2_CC_ALGO_BBR2;
           break;
         }
+        if (strcmp("bbrfrcst", optarg) == 0) {
+          config.cc_algo = NGTCP2_CC_ALGO_BBRFRCST;
+          break;
+        }
         std::cerr << "cc: specify cubic, reno, bbr, or bbr2" << std::endl;
         exit(EXIT_FAILURE);
       case 20:
@@ -4003,6 +4020,28 @@ int main(int argc, char **argv) {
         // --inopsy-log
         config.quiet = true;
         config.inopsy_log_is_set = true;
+        break;
+      }
+      case 34: {
+        // --bbrfrcst-params
+        std::stringstream ss(optarg);
+        std::string substr;
+        getline(ss, substr, ',');
+        if (auto t = util::parse_duration(substr); !t) {
+          std::cerr << "--bbrfrcst-params rtt: invalid argument" << std::endl;
+          exit(EXIT_FAILURE);
+        } else {
+          config.frcst_rtt = *t;
+        }
+        getline(ss, substr, ',');
+        config.frcst_loss = std::stod(substr);
+        getline(ss, substr);
+        if (auto n = util::parse_uint_iec(substr); !n) {
+          std::cerr << "--bbrfrcst-params bw: invalid argument" << std::endl;
+          exit(EXIT_FAILURE);
+        } else {
+          config.frcst_bw = *n;
+        }
         break;
       }
       }
