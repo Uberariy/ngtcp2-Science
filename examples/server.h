@@ -122,10 +122,11 @@ public:
   int feed_data(const Endpoint &ep, const Address &local_addr,
                 const sockaddr *sa, socklen_t salen, const ngtcp2_pkt_info *pi,
                 uint8_t *data, size_t datalen);
-  void update_timer();
+  void schedule_retransmit();
   int handle_expiry();
   void signal_write();
   int handshake_completed();
+  void update_on_off_app();
 
   Server *server() const;
   int recv_stream_data(uint32_t flags, int64_t stream_id, const uint8_t *data,
@@ -136,6 +137,7 @@ public:
   int on_stream_close(int64_t stream_id, uint64_t app_error_code);
   void start_draining_period();
   int start_closing_period();
+  bool draining() const;
   int handle_error();
   int send_conn_close();
 
@@ -164,11 +166,14 @@ public:
   int http_stop_sending(int64_t stream_id, uint64_t app_error_code);
   int http_reset_stream(int64_t stream_id, uint64_t app_error_code);
 
+  void reset_idle_timer();
+
   void write_qlog(const void *data, size_t datalen);
 
   void on_send_blocked(Endpoint &ep, const ngtcp2_addr &local_addr,
                        const ngtcp2_addr &remote_addr, unsigned int ecn,
-                       const uint8_t *data, size_t datalen, size_t gso_size);
+                       const uint8_t *data, size_t datalen,
+                       size_t max_udp_payload_size);
   void start_wev_endpoint(const Endpoint &ep);
   int send_blocked_packet();
 
@@ -177,6 +182,11 @@ private:
   Server *server_;
   ev_io wev_;
   ev_timer timer_;
+  ev_timer rttimer_;
+  // InOpSy timer to exit program after it is expired
+  ev_timer quittimer_;
+  // InOpSy timer to control on/off application
+  ev_timer onofftimer_;
   FILE *qlog_;
   ngtcp2_cid scid_;
   nghttp3_conn *httpconn_;
@@ -187,6 +197,8 @@ private:
   std::unique_ptr<Buffer> conn_closebuf_;
   // nkey_update_ is the number of key update occurred.
   size_t nkey_update_;
+  // draining_ becomes true when draining period starts.
+  bool draining_;
 
   struct {
     bool send_blocked;
@@ -200,10 +212,21 @@ private:
       unsigned int ecn;
       const uint8_t *data;
       size_t datalen;
-      size_t gso_size;
+      size_t max_udp_payload_size;
     } blocked[2];
     std::unique_ptr<uint8_t[]> data;
   } tx_;
+
+  // speed_ is InOpSy speed control struct.
+  struct {
+    std::chrono::nanoseconds speed_interval;
+    std::chrono::milliseconds speed_update;
+    size_t limit_per_update;
+    uint64_t average_packet_size;
+    int64_t previous_update_debt;
+    std::chrono::system_clock::time_point next_send;
+    std::chrono::system_clock::time_point next_update;
+  } speed_; 
 };
 
 class Server {

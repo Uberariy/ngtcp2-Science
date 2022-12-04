@@ -146,10 +146,11 @@ struct client {
     size_t nwrite;
   } stream;
 
-  ngtcp2_connection_close_error last_error;
+  uint64_t last_error;
 
   ev_io rev;
   ev_timer timer;
+  ev_timer idle_timer;
 };
 
 static int set_encryption_secrets(SSL *ssl, OSSL_ENCRYPTION_LEVEL ossl_level,
@@ -202,8 +203,7 @@ static int send_alert(SSL *ssl, OSSL_ENCRYPTION_LEVEL ossl_level,
   struct client *c = SSL_get_app_data(ssl);
   (void)ossl_level;
 
-  ngtcp2_connection_close_error_set_transport_error_tls_alert(&c->last_error,
-                                                              alert, NULL, 0);
+  c->last_error = NGTCP2_CRYPTO_ERROR | alert;
 
   return 1;
 }
@@ -378,7 +378,6 @@ static int client_quic_init(struct client *c,
       NULL, /* lost_datagram */
       ngtcp2_crypto_get_path_challenge_data_cb,
       NULL, /* stream_stop_sending */
-      ngtcp2_crypto_version_negotiation_cb,
   };
   ngtcp2_cid dcid, scid;
   ngtcp2_settings settings;
@@ -419,6 +418,16 @@ static int client_quic_init(struct client *c,
   ngtcp2_conn_set_tls_native_handle(c->conn, c->ssl);
 
   return 0;
+}
+
+static void client_reset_idle_timer(struct client *c) {
+  ngtcp2_tstamp expiry = ngtcp2_conn_get_idle_expiry(c->conn);
+  ngtcp2_tstamp now = timestamp();
+
+  c->idle_timer.repeat =
+      expiry < now ? 1e-9 : (ev_tstamp)(expiry - now) / NGTCP2_SECONDS;
+
+  ev_timer_again(EV_DEFAULT, &c->idle_timer);
 }
 
 static int client_read(struct client *c) {
@@ -462,19 +471,19 @@ static int client_read(struct client *c) {
       case NGTCP2_ERR_MALFORMED_TRANSPORT_PARAM:
       case NGTCP2_ERR_TRANSPORT_PARAM:
       case NGTCP2_ERR_PROTO:
-        ngtcp2_connection_close_error_set_transport_error_liberr(&c->last_error,
-                                                                 rv, NULL, 0);
+        c->last_error = ngtcp2_err_infer_quic_transport_error_code(rv);
         break;
       default:
-        if (!c->last_error.error_code) {
-          ngtcp2_connection_close_error_set_transport_error_liberr(
-              &c->last_error, rv, NULL, 0);
+        if (!c->last_error) {
+          c->last_error = ngtcp2_err_infer_quic_transport_error_code(rv);
         }
         break;
       }
       return -1;
     }
   }
+
+  client_reset_idle_timer(c);
 
   return 0;
 }
@@ -558,8 +567,7 @@ static int client_write_streams(struct client *c) {
       default:
         fprintf(stderr, "ngtcp2_conn_writev_stream: %s\n",
                 ngtcp2_strerror((int)nwrite));
-        ngtcp2_connection_close_error_set_transport_error_liberr(
-            &c->last_error, (int)nwrite, NULL, 0);
+        c->last_error = ngtcp2_err_infer_quic_transport_error_code((int)nwrite);
         return -1;
       }
     }
@@ -576,6 +584,8 @@ static int client_write_streams(struct client *c) {
       break;
     }
   }
+
+  client_reset_idle_timer(c);
 
   return 0;
 }
@@ -615,15 +625,15 @@ static void client_close(struct client *c) {
   ngtcp2_path_storage ps;
   uint8_t buf[1280];
 
-  if (ngtcp2_conn_is_in_closing_period(c->conn) ||
-      ngtcp2_conn_is_in_draining_period(c->conn)) {
+  if (ngtcp2_conn_is_in_closing_period(c->conn) || !c->last_error) {
     goto fin;
   }
 
   ngtcp2_path_storage_zero(&ps);
 
-  nwrite = ngtcp2_conn_write_connection_close(
-      c->conn, &ps.path, &pi, buf, sizeof(buf), &c->last_error, timestamp());
+  nwrite = ngtcp2_conn_write_connection_close(c->conn, &ps.path, &pi, buf,
+                                              sizeof(buf), c->last_error, NULL,
+                                              0, timestamp());
   if (nwrite < 0) {
     fprintf(stderr, "ngtcp2_conn_write_connection_close: %s\n",
             ngtcp2_strerror((int)nwrite));
@@ -666,13 +676,21 @@ static void timer_cb(struct ev_loop *loop, ev_timer *w, int revents) {
   }
 }
 
+static void idle_timer_cb(struct ev_loop *loop, ev_timer *w, int revents) {
+  (void)loop;
+  (void)w;
+  (void)revents;
+
+  fprintf(stderr, "idle timeout\n");
+
+  ev_break(EV_DEFAULT, EVBREAK_ALL);
+}
+
 static int client_init(struct client *c) {
   struct sockaddr_storage remote_addr, local_addr;
   socklen_t remote_addrlen, local_addrlen = sizeof(local_addr);
 
   memset(c, 0, sizeof(*c));
-
-  ngtcp2_connection_close_error_default(&c->last_error);
 
   c->fd = create_sock((struct sockaddr *)&remote_addr, &remote_addrlen,
                       REMOTE_HOST, REMOTE_PORT);
@@ -705,6 +723,10 @@ static int client_init(struct client *c) {
 
   ev_timer_init(&c->timer, timer_cb, 0., 0.);
   c->timer.data = c;
+
+  ev_timer_init(&c->idle_timer, idle_timer_cb, 0., 30.);
+  c->idle_timer.data = c;
+  ev_timer_again(EV_DEFAULT, &c->timer);
 
   return 0;
 }

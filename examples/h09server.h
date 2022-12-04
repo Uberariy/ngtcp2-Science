@@ -116,7 +116,7 @@ public:
   int feed_data(const Endpoint &ep, const Address &local_addr,
                 const sockaddr *sa, socklen_t salen, const ngtcp2_pkt_info *pi,
                 uint8_t *data, size_t datalen);
-  void update_timer();
+  void schedule_retransmit();
   int handle_expiry();
   void signal_write();
   int handshake_completed();
@@ -131,6 +131,7 @@ public:
   int on_stream_close(int64_t stream_id, uint64_t app_error_code);
   void start_draining_period();
   int start_closing_period();
+  bool draining() const;
   int handle_error();
   int send_conn_close();
 
@@ -144,12 +145,15 @@ public:
   int extend_max_stream_data(int64_t stream_id, uint64_t max_data);
   void shutdown_read(int64_t stream_id, int app_error_code);
 
+  void reset_idle_timer();
+
   void write_qlog(const void *data, size_t datalen);
   void add_sendq(Stream *stream);
 
   void on_send_blocked(Endpoint &ep, const ngtcp2_addr &local_addr,
                        const ngtcp2_addr &remote_addr, unsigned int ecn,
-                       const uint8_t *data, size_t datalen, size_t gso_size);
+                       const uint8_t *data, size_t datalen,
+                       size_t max_udp_payload_size);
   void start_wev_endpoint(const Endpoint &ep);
   int send_blocked_packet();
 
@@ -158,6 +162,7 @@ private:
   Server *server_;
   ev_io wev_;
   ev_timer timer_;
+  ev_timer rttimer_;
   FILE *qlog_;
   ngtcp2_cid scid_;
   std::unordered_map<int64_t, std::unique_ptr<Stream>> streams_;
@@ -168,6 +173,8 @@ private:
   std::unique_ptr<Buffer> conn_closebuf_;
   // nkey_update_ is the number of key update occurred.
   size_t nkey_update_;
+  // draining_ becomes true when draining period starts.
+  bool draining_;
 
   struct {
     bool send_blocked;
@@ -181,7 +188,7 @@ private:
       unsigned int ecn;
       const uint8_t *data;
       size_t datalen;
-      size_t gso_size;
+      size_t max_udp_payload_size;
     } blocked[2];
     std::unique_ptr<uint8_t[]> data;
   } tx_;

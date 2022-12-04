@@ -25,6 +25,7 @@
 #include "ngtcp2_bbr.h"
 
 #include <assert.h>
+#include <stdio.h>
 
 #include "ngtcp2_log.h"
 #include "ngtcp2_macro.h"
@@ -244,6 +245,8 @@ static void bbr_update_on_ack(ngtcp2_bbr_cc *cc, ngtcp2_conn_stat *cstat,
                               const ngtcp2_cc_ack *ack, ngtcp2_tstamp ts) {
   bbr_update_model_and_state(cc, cstat, ack, ts);
   bbr_update_control_parameters(cc, cstat, ack);
+  fprintf(stderr, "!CcCwnd:%ld\n", (long)cstat->cwnd);
+  // fprintf(stderr, "CC Cwnd: %ld\n", (long)cstat->cwnd);
 }
 
 static void bbr_update_model_and_state(ngtcp2_bbr_cc *cc,
@@ -291,7 +294,7 @@ static void bbr_update_round(ngtcp2_bbr_cc *cc, const ngtcp2_cc_ack *ack) {
 static void bbr_handle_recovery(ngtcp2_bbr_cc *cc, ngtcp2_conn_stat *cstat,
                                 const ngtcp2_cc_ack *ack) {
   if (cc->in_loss_recovery) {
-    if (ack->pkt_delivered >= cc->congestion_recovery_next_round_delivered) {
+    if (cc->round_start) {
       cc->packet_conservation = 0;
     }
 
@@ -313,7 +316,6 @@ static void bbr_handle_recovery(ngtcp2_bbr_cc *cc, ngtcp2_conn_stat *cstat,
     cstat->congestion_recovery_start_ts = cc->congestion_recovery_start_ts;
     cc->congestion_recovery_start_ts = UINT64_MAX;
     cc->packet_conservation = 1;
-    cc->congestion_recovery_next_round_delivered = cc->rst->delivered;
   }
 }
 
@@ -413,7 +415,7 @@ static void bbr_modulate_cwnd_for_recovery(ngtcp2_bbr_cc *cc,
   if (ack->bytes_lost > 0) {
     if (cstat->cwnd > ack->bytes_lost) {
       cstat->cwnd -= ack->bytes_lost;
-      cstat->cwnd = ngtcp2_max(cstat->cwnd, 2 * cstat->max_udp_payload_size);
+      cstat->cwnd = ngtcp2_max(cstat->cwnd, cstat->max_udp_payload_size);
     } else {
       cstat->cwnd = cstat->max_udp_payload_size;
     }
@@ -488,7 +490,6 @@ static void bbr_init(ngtcp2_bbr_cc *cc, ngtcp2_conn_stat *cstat,
   cc->probe_rtt_round_done = 0;
 
   cc->congestion_recovery_start_ts = UINT64_MAX;
-  cc->congestion_recovery_next_round_delivered = 0;
   cc->in_loss_recovery = 0;
 
   cstat->send_quantum = cstat->max_udp_payload_size * 10;

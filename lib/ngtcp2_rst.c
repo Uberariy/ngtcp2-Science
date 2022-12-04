@@ -25,6 +25,7 @@
 #include "ngtcp2_rst.h"
 
 #include <assert.h>
+#include <stdio.h> // InOpSy
 
 #include "ngtcp2_rtb.h"
 #include "ngtcp2_cc.h"
@@ -106,6 +107,17 @@ int ngtcp2_rst_on_ack_recv(ngtcp2_rst *rst, ngtcp2_conn_stat *cstat,
   if (rate > ngtcp2_window_filter_get_best(&rst->wf) || !rst->app_limited) {
     ngtcp2_window_filter_update(&rst->wf, rate, rst->round_count);
     cstat->delivery_rate_sec = ngtcp2_window_filter_get_best(&rst->wf);
+  }
+
+  // InOpSy: Measure loss
+  if (rs->tx_in_flight > 0) {
+    fprintf(stderr, "!loss2:%f\n", 
+                    (float)(rs->lost) * 100
+                    / rs->tx_in_flight);
+    fprintf(stderr, "!rs->lost:%lu !rs->tx_in_flight:%lu !rs->delivered:%lu\n", 
+                    rs->lost,
+                    rs->tx_in_flight,
+                    rs->delivered);
   }
 
   return 0;

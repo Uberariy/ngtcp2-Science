@@ -122,6 +122,24 @@ void readcb(struct ev_loop *loop, ev_io *w, int revents) {
 
 namespace {
 void timeoutcb(struct ev_loop *loop, ev_timer *w, int revents) {
+  auto c = static_cast<Client *>(w->data);
+
+  if (!config.quiet) {
+    std::cerr << "Timeout" << std::endl;
+  }
+
+  c->idle_timeout();
+}
+} // namespace
+
+void Client::idle_timeout() {
+  ngtcp2_connection_close_error_set_transport_error_idle_close(&last_error_,
+                                                               nullptr, 0);
+  disconnect();
+}
+
+namespace {
+void retransmitcb(struct ev_loop *loop, ev_timer *w, int revents) {
   int rv;
   auto c = static_cast<Client *>(w->data);
 
@@ -183,8 +201,11 @@ Client::Client(struct ev_loop *loop)
       tx_{} {
   ev_io_init(&wev_, writecb, 0, EV_WRITE);
   wev_.data = this;
-  ev_timer_init(&timer_, timeoutcb, 0., 0.);
+  ev_timer_init(&timer_, timeoutcb, 0.,
+                static_cast<double>(config.timeout) / NGTCP2_SECONDS);
   timer_.data = this;
+  ev_timer_init(&rttimer_, retransmitcb, 0., 0.);
+  rttimer_.data = this;
   ev_timer_init(&change_local_addr_timer_, change_local_addrcb,
                 static_cast<double>(config.change_local_addr) / NGTCP2_SECONDS,
                 0.);
@@ -210,6 +231,7 @@ void Client::disconnect() {
   ev_timer_stop(loop_, &delay_stream_timer_);
   ev_timer_stop(loop_, &key_update_timer_);
   ev_timer_stop(loop_, &change_local_addr_timer_);
+  ev_timer_stop(loop_, &rttimer_);
   ev_timer_stop(loop_, &timer_);
 
   ev_io_stop(loop_, &wev_);
@@ -582,8 +604,6 @@ int Client::init(int fd, const Address &local_addr, const Address &remote_addr,
       nullptr, // ack_datagram
       nullptr, // lost_datagram
       ngtcp2_crypto_get_path_challenge_data_cb,
-      nullptr, // stream_stop_sending
-      ngtcp2_crypto_version_negotiation_cb,
   };
 
   ngtcp2_cid scid, dcid;
@@ -627,12 +647,9 @@ int Client::init(int fd, const Address &local_addr, const Address &remote_addr,
   settings.cc_algo = config.cc_algo;
   settings.initial_ts = util::timestamp(loop_);
   settings.initial_rtt = config.initial_rtt;
-  if (config.max_udp_payload_size) {
-    settings.max_udp_payload_size = config.max_udp_payload_size;
-    settings.no_udp_payload_size_shaping = 1;
-  }
+  settings.max_udp_payload_size = config.max_udp_payload_size;
+  settings.no_udp_payload_size_shaping = 1;
   settings.handshake_timeout = config.handshake_timeout;
-  settings.no_pmtud = config.no_pmtud;
 
   std::string token;
 
@@ -645,11 +662,6 @@ int Client::init(int fd, const Address &local_addr, const Address &remote_addr,
       settings.token.base = reinterpret_cast<uint8_t *>(token.data());
       settings.token.len = token.size();
     }
-  }
-
-  if (!config.other_versions.empty()) {
-    settings.other_versions = config.other_versions.data();
-    settings.other_versionslen = config.other_versions.size();
   }
 
   ngtcp2_transport_params params;
@@ -706,6 +718,7 @@ int Client::init(int fd, const Address &local_addr, const Address &remote_addr,
   }
 
   ev_io_start(loop_, &ep.rev);
+  ev_timer_again(loop_, &timer_);
 
   ev_signal_start(loop_, &sigintev_);
 
@@ -820,9 +833,25 @@ int Client::on_read(const Endpoint &ep) {
     return -1;
   }
 
-  update_timer();
+  reset_idle_timer();
 
   return 0;
+}
+
+void Client::reset_idle_timer() {
+  auto now = util::timestamp(loop_);
+  auto idle_expiry = ngtcp2_conn_get_idle_expiry(conn_);
+  timer_.repeat =
+      idle_expiry > now
+          ? static_cast<ev_tstamp>(idle_expiry - now) / NGTCP2_SECONDS
+          : 1e-9;
+
+  if (!config.quiet) {
+    std::cerr << "Set idle timer=" << std::fixed << timer_.repeat << "s"
+              << std::defaultfloat << std::endl;
+  }
+
+  ev_timer_again(loop_, &timer_);
 }
 
 int Client::handle_expiry() {
@@ -830,8 +859,8 @@ int Client::handle_expiry() {
   if (auto rv = ngtcp2_conn_handle_expiry(conn_, now); rv != 0) {
     std::cerr << "ngtcp2_conn_handle_expiry: " << ngtcp2_strerror(rv)
               << std::endl;
-    ngtcp2_connection_close_error_set_transport_error_liberr(&last_error_, rv,
-                                                             nullptr, 0);
+    ngtcp2_connection_close_error_set_transport_error_liberr(
+        &last_error_, NGTCP2_ERR_INTERNAL, nullptr, 0);
     disconnect();
     return -1;
   }
@@ -859,7 +888,7 @@ int Client::on_write() {
     return -1;
   }
 
-  update_timer();
+  schedule_retransmit();
   return 0;
 }
 
@@ -867,7 +896,7 @@ int Client::write_streams() {
   ngtcp2_vec vec;
   ngtcp2_path_storage ps;
   size_t pktcnt = 0;
-  auto max_udp_payload_size = ngtcp2_conn_get_max_udp_payload_size(conn_);
+  auto max_udp_payload_size = ngtcp2_conn_get_path_max_udp_payload_size(conn_);
   size_t max_pktcnt =
       (config.cc_algo == NGTCP2_CC_ALGO_BBR ||
        config.cc_algo == NGTCP2_CC_ALGO_BBR2)
@@ -937,6 +966,8 @@ int Client::write_streams() {
       return 0;
     }
 
+    reset_idle_timer();
+
     auto &ep = *static_cast<Endpoint *>(ps.path.user_data);
 
     if (auto rv =
@@ -964,28 +995,13 @@ int Client::write_streams() {
   }
 }
 
-void Client::update_timer() {
+void Client::schedule_retransmit() {
   auto expiry = ngtcp2_conn_get_expiry(conn_);
   auto now = util::timestamp(loop_);
-
-  if (expiry <= now) {
-    if (!config.quiet) {
-      auto t = static_cast<ev_tstamp>(now - expiry) / NGTCP2_SECONDS;
-      std::cerr << "Timer has already expired: " << t << "s" << std::endl;
-    }
-
-    ev_feed_event(loop_, &timer_, EV_TIMER);
-
-    return;
-  }
-
-  auto t = static_cast<ev_tstamp>(expiry - now) / NGTCP2_SECONDS;
-  if (!config.quiet) {
-    std::cerr << "Set timer=" << std::fixed << t << "s" << std::defaultfloat
-              << std::endl;
-  }
-  timer_.repeat = t;
-  ev_timer_again(loop_, &timer_);
+  auto t = expiry < now ? 1e-9
+                        : static_cast<ev_tstamp>(expiry - now) / NGTCP2_SECONDS;
+  rttimer_.repeat = t;
+  ev_timer_again(loop_, &rttimer_);
 }
 
 #ifdef HAVE_LINUX_RTNETLINK_H
@@ -1072,9 +1088,14 @@ int udp_sock(int family) {
     return -1;
   }
 
+  auto val = 1;
+  if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &val,
+                 static_cast<socklen_t>(sizeof(val))) == -1) {
+    close(fd);
+    return -1;
+  }
+
   fd_set_recv_ecn(fd, family);
-  fd_set_ip_mtu_discover(fd, family);
-  fd_set_ip_dontfrag(fd, family);
 
   return fd;
 }
@@ -1338,9 +1359,6 @@ int Client::send_packet(const Endpoint &ep, const ngtcp2_addr &remote_addr,
       return NETWORK_ERR_SEND_BLOCKED;
     }
     std::cerr << "sendmsg: " << strerror(errno) << std::endl;
-    if (errno == EMSGSIZE) {
-      return 0;
-    }
     return NETWORK_ERR_FATAL;
   }
 
@@ -1418,8 +1436,7 @@ int Client::send_blocked_packet() {
 }
 
 int Client::handle_error() {
-  if (!conn_ || ngtcp2_conn_is_in_closing_period(conn_) ||
-      ngtcp2_conn_is_in_draining_period(conn_)) {
+  if (!conn_ || ngtcp2_conn_is_in_closing_period(conn_)) {
     return 0;
   }
 
@@ -1431,11 +1448,11 @@ int Client::handle_error() {
 
   ngtcp2_pkt_info pi;
 
-  auto nwrite = ngtcp2_conn_write_connection_close(
+  auto nwrite = ngtcp2_conn_write_connection_close2(
       conn_, &ps.path, &pi, buf.data(), buf.size(), &last_error_,
       util::timestamp(loop_));
   if (nwrite < 0) {
-    std::cerr << "ngtcp2_conn_write_connection_close: "
+    std::cerr << "ngtcp2_conn_write_connection_close2: "
               << ngtcp2_strerror(nwrite) << std::endl;
     return -1;
   }
@@ -1773,6 +1790,7 @@ void config_set_default(Config &config) {
   config.max_streams_uni = 100;
   config.cc_algo = NGTCP2_CC_ALGO_CUBIC;
   config.initial_rtt = NGTCP2_DEFAULT_INITIAL_RTT;
+  config.max_udp_payload_size = client_max_udp_payload_size;
   config.handshake_timeout = NGTCP2_DEFAULT_HANDSHAKE_TIMEOUT;
 }
 } // namespace
@@ -1805,22 +1823,9 @@ Options:
               list  is  less than  <N>,  <URI>  list is  wrapped.   It
               defaults to 0 which means the number of <URI> specified.
   -v, --version=<HEX>
-              Specify QUIC version to use in hex string.  If the given
-              version is  not supported by libngtcp2,  client will use
-              QUIC v1  long packet  types.  Instead of  specifying hex
-              string,  there  are   special  aliases  available:  "v1"
-              indicates  QUIC  v1,  and "v2draft"  indicates  QUIC  v2
-              draft.
+              Specify QUIC version to use in hex string.
               Default: )"
             << std::hex << "0x" << config.version << std::dec << R"(
-  --other-versions=<HEX>[[,<HEX>]...]
-              Specify QUIC  versions in  hex string  that are  sent in
-              other_versions  field  of version_information  transport
-              parameter.  This list can include a version which is not
-              supported  by  libngtcp2.   Instead  of  specifying  hex
-              string,  there  are   special  aliases  available:  "v1"
-              indicates  QUIC  v1,  and "v2draft"  indicates  QUIC  v2
-              draft.
   -q, --quiet Suppress debug output.
   -s, --show-secret
               Print out secrets unless --quiet is used.
@@ -1937,11 +1942,12 @@ Options:
             << util::format_duration(config.initial_rtt) << R"(
   --max-udp-payload-size=<SIZE>
               Override maximum UDP payload size that client transmits.
+              Default: )"
+            << config.max_udp_payload_size << R"(
   --handshake-timeout=<DURATION>
               Set the QUIC handshake timeout.
               Default: )"
             << util::format_duration(config.handshake_timeout) << R"(
-  --no-pmtud  Disables Path MTU Discovery.
   -h, --help  Display this help and exit.
 
 ---
@@ -2008,8 +2014,6 @@ int main(int argc, char **argv) {
         {"initial-rtt", required_argument, &flag, 31},
         {"max-udp-payload-size", required_argument, &flag, 32},
         {"handshake-timeout", required_argument, &flag, 36},
-        {"other-versions", required_argument, &flag, 37},
-        {"no-pmtud", no_argument, &flag, 38},
         {nullptr, 0, nullptr, 0},
     };
 
@@ -2062,14 +2066,6 @@ int main(int argc, char **argv) {
       break;
     case 'v':
       // --version
-      if (optarg == std::string_view{"v1"}) {
-        config.version = NGTCP2_PROTO_VER_V1;
-        break;
-      }
-      if (optarg == std::string_view{"v2draft"}) {
-        config.version = NGTCP2_PROTO_VER_V2_DRAFT;
-        break;
-      }
       config.version = strtol(optarg, nullptr, 16);
       break;
     case '?':
@@ -2306,28 +2302,6 @@ int main(int argc, char **argv) {
         } else {
           config.handshake_timeout = *t;
         }
-        break;
-      case 37: {
-        // --other-versions
-        auto l = util::split_str(optarg);
-        config.other_versions.resize(l.size());
-        auto it = std::begin(config.other_versions);
-        for (const auto &v : l) {
-          if (v == "v1") {
-            *it++ = NGTCP2_PROTO_VER_V1;
-            continue;
-          }
-          if (v == "v2draft") {
-            *it++ = NGTCP2_PROTO_VER_V2_DRAFT;
-            continue;
-          }
-          *it++ = strtol(v.c_str(), nullptr, 16);
-        }
-        break;
-      }
-      case 38:
-        // --no-pmtud
-        config.no_pmtud = true;
         break;
       }
       break;

@@ -31,7 +31,10 @@
 #include <memory>
 #include <fstream>
 #include <iomanip>
-#include <string>
+#include <thread> // InOpSy
+#include <string> // InOpSy
+#include <ctime> // InOpSy
+#include <iostream>
 
 #include <unistd.h>
 #include <getopt.h>
@@ -43,8 +46,7 @@
 #include <sys/mman.h>
 #include <netinet/udp.h>
 #include <net/if.h>
-#include <stdio.h>
-
+#include <stdio.h> // InOpSy
 #include <http-parser/http_parser.h>
 
 #include "server.h"
@@ -54,6 +56,12 @@
 #include "shared.h"
 #include "http.h"
 #include "template.h"
+#include "json.hpp" // InOpSy
+#include "time_logger.h" // InOpSy
+
+using json = nlohmann::json;
+
+#include "../ngtcp2_macro.h" // InOpSy
 
 using namespace ngtcp2;
 using namespace std::literals;
@@ -65,6 +73,12 @@ using namespace std::literals;
 #    define NGTCP2_ENABLE_UDP_GSO 0
 #  endif // !UDP_SEGMENT
 #endif   // NGTCP2_ENABLE_UDP_GSO
+
+// As we aim to reach speed per second, we use 100 mls value to
+// guarantee no more than 10% of variation for data built in packets.
+# define INOPSY_SPEED_UPDATE_IN_MLS 100
+// 1159 is maximum ndatalen calculated in Handler::write_streams()
+# define INOPSY_SPEED_INITIAL_PCKT_SIZE 1159
 
 namespace {
 constexpr size_t NGTCP2_SV_SCIDLEN = 18;
@@ -224,8 +238,14 @@ std::pair<FileEntry, int> Stream::open_file(const std::string &path) {
   if (it != std::end(file_cache)) {
     return {(*it).second, 0};
   }
-
-  auto fd = open(path.c_str(), O_RDONLY);
+  int fd;
+  if (config.filesize_zero_is_set) {
+    // We send a file with zeros of specified length
+    fd = open("/dev/zero", O_RDWR);
+  } else {
+    // We send a specified file
+    fd = open(path.c_str(), O_RDONLY);
+  }
   if (fd == -1) {
     return {{}, -1};
   }
@@ -243,8 +263,15 @@ std::pair<FileEntry, int> Stream::open_file(const std::string &path) {
     close(fd);
   } else {
     fe.fd = fd;
-    fe.len = st.st_size;
-    fe.map = mmap(nullptr, fe.len, PROT_READ, MAP_SHARED, fd, 0);
+    if (config.filesize_zero_is_set) {
+      // We send a file with zeros of specified length
+      fe.len = config.filesize_zero;
+      fe.map = mmap(0, config.filesize_zero, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_FILE, fd, 0);
+    } else {
+      // We send a specified file
+      fe.len = st.st_size;
+      fe.map = mmap(nullptr, fe.len, PROT_READ, MAP_SHARED, fd, 0);
+    }
     if (fe.map == MAP_FAILED) {
       std::cerr << "mmap: " << strerror(errno) << std::endl;
       close(fd);
@@ -258,7 +285,7 @@ std::pair<FileEntry, int> Stream::open_file(const std::string &path) {
 }
 
 void Stream::map_file(const FileEntry &fe) {
-  data = static_cast<uint8_t *>(fe.map);
+  data = static_cast<uint8_t *>(fe.map);  // define tx_.data
   datalen = fe.len;
 }
 
@@ -300,6 +327,7 @@ nghttp3_ssize read_data(nghttp3_conn *conn, int64_t stream_id, nghttp3_vec *vec,
   if (config.send_trailers) {
     *pflags |= NGHTTP3_DATA_FLAG_NO_END_STREAM;
   }
+  std::cout << "Sending content...\n";
 
   return 1;
 }
@@ -366,7 +394,6 @@ int Stream::send_status_response(nghttp3_conn *httpconn,
 
   auto status_code_str = std::to_string(status_code);
   auto content_length_str = std::to_string(status_resp_body.size());
-
   std::vector<nghttp3_nv> nva(4 + extra_headers.size());
   nva[0] = util::make_nv(":status", status_code_str);
   nva[1] = util::make_nv("server", NGTCP2_SERVER);
@@ -572,13 +599,98 @@ void writecb(struct ev_loop *loop, ev_io *w, int revents) {
 }
 } // namespace
 
+/**
+ * @function
+ * 
+ * Next function is a ev_timer callback invoked, when a server ran
+ * out of time given in config.quit_timeout
+ */
 namespace {
-void close_waitcb(struct ev_loop *loop, ev_timer *w, int revents) {
+void timeoutquit(struct ev_loop *loop, ev_timer *w, int revents) {
   auto h = static_cast<Handler *>(w->data);
   auto s = h->server();
-  auto conn = h->conn();
+  h->start_closing_period();
+}
+} // namespace
 
-  if (ngtcp2_conn_is_in_closing_period(conn)) {
+/**
+ * @function
+ * 
+ * Next function is a ev_timer callback invoked, when a server wants
+ * to change on/off application states
+ */
+namespace {
+void onoffchangecb(struct ev_loop *loop, ev_timer *w, int revents) {
+  auto h = static_cast<Handler *>(w->data);
+  auto s = h->server();
+  h->update_on_off_app();
+}
+} // namespace
+
+void Handler::update_on_off_app() {
+  ev_timer_stop(loop_, &onofftimer_);
+  ngtcp2_duration next_change_period;
+  for(;;)
+    if (config.app_state == config.app_state_type::ON_OFF_STATE_WAIT) {
+      config.app_state = config.app_state_type::ON_OFF_STATE_SEND;
+      reset_idle_timer(); // Not sure
+      if (config.app_schedule_used) {
+        if (!config.app_state_send_period_queue.empty()) {
+          next_change_period = config.app_state_send_period_queue.front();
+          config.app_state_send_period_queue.pop();
+        } else {
+          ev_timer_init(&quittimer_, timeoutquit, 0., 0.);
+          ev_timer_start(loop_, &quittimer_);
+          quittimer_.data = this;
+          break;
+        }
+      } else {
+        next_change_period = config.app_state_send_period;
+      }
+      std::cout << "on-off: Changing status: SEND " << next_change_period << "\n";
+      if (next_change_period != 0) {
+        onofftimer_.repeat =
+          static_cast<ev_tstamp>(next_change_period) / NGTCP2_SECONDS;
+        break;
+      }
+    } else {
+      config.app_state = config.app_state_type::ON_OFF_STATE_WAIT;
+      if (config.app_schedule_used) {
+        if (!config.app_state_wait_period_queue.empty()) {
+          next_change_period = config.app_state_wait_period_queue.front();
+          config.app_state_wait_period_queue.pop();
+        } else {
+          ev_timer_init(&quittimer_, timeoutquit, 0., 0.);
+          ev_timer_start(loop_, &quittimer_);
+          quittimer_.data = this;
+          break;
+        }
+      } else {
+        next_change_period = config.app_state_wait_period;
+      }
+      speed_.next_update += std::chrono::milliseconds(next_change_period 
+                            / NGTCP2_MILLISECONDS);
+      std::cout << "on-off: Changing status: WAIT " << next_change_period << "\n";
+      if (next_change_period != 0) {
+        timer_.repeat =
+          static_cast<ev_tstamp>(next_change_period) / NGTCP2_SECONDS +
+          static_cast<ev_tstamp>(ngtcp2_conn_get_pto(conn_)) / NGTCP2_SECONDS * 3;
+        ev_timer_again(loop_, &timer_);
+        onofftimer_.repeat =
+          static_cast<ev_tstamp>(next_change_period) / NGTCP2_SECONDS;
+        break;
+      }
+    }
+  ev_timer_again(loop_, &onofftimer_);
+  onofftimer_.data = this;
+}
+
+namespace {
+void timeoutcb(struct ev_loop *loop, ev_timer *w, int revents) {
+  auto h = static_cast<Handler *>(w->data);
+  auto s = h->server();
+
+  if (ngtcp2_conn_is_in_closing_period(h->conn())) {
     if (!config.quiet) {
       std::cerr << "Closing Period is over" << std::endl;
     }
@@ -586,7 +698,7 @@ void close_waitcb(struct ev_loop *loop, ev_timer *w, int revents) {
     s->remove(h);
     return;
   }
-  if (ngtcp2_conn_is_in_draining_period(conn)) {
+  if (h->draining()) {
     if (!config.quiet) {
       std::cerr << "Draining Period is over" << std::endl;
     }
@@ -595,12 +707,16 @@ void close_waitcb(struct ev_loop *loop, ev_timer *w, int revents) {
     return;
   }
 
-  assert(0);
+  if (!config.quiet) {
+    std::cerr << "Timeout" << std::endl;
+  }
+
+  h->start_draining_period();
 }
 } // namespace
 
 namespace {
-void timeoutcb(struct ev_loop *loop, ev_timer *w, int revents) {
+void retransmitcb(struct ev_loop *loop, ev_timer *w, int revents) {
   int rv;
 
   auto h = static_cast<Handler *>(w->data);
@@ -634,6 +750,36 @@ fail:
 }
 } // namespace
 
+/**
+ * @function
+ * 
+ * Next function calculates period of time required to wait before
+ * we send a new packet of size |average_packet_size|, and adds
+ * |previous_update_debt| amount of bytes in |limit_per_update|.
+ * 
+ * |limit_per_update| is number of bytes we can send each |speed_update|. 
+ */
+std::chrono::nanoseconds speed_calculate_interval(size_t limit_per_update, 
+                                                  uint64_t average_packet_size, 
+                                                  int64_t* previous_update_debt, 
+                                                  std::chrono::milliseconds 
+                                                  speed_update) {
+  int pckt_per_update = 0;
+  if (config.app_state != config.app_state_type::ON_OFF_STATE_WAIT) {
+    pckt_per_update = (limit_per_update + *previous_update_debt) / 
+                         average_packet_size;
+    *previous_update_debt += limit_per_update;
+  }
+  if (pckt_per_update == 0)
+    return std::chrono::nanoseconds(UINT64_MAX);
+  return (speed_update / pckt_per_update);
+} // InOpSy
+
+void log_time() {
+  TimeLogger log_timer;
+  log_timer.yield_time();
+} // InOpSy
+
 Handler::Handler(struct ev_loop *loop, Server *server)
     : loop_(loop),
       server_(server),
@@ -641,13 +787,36 @@ Handler::Handler(struct ev_loop *loop, Server *server)
       scid_{},
       httpconn_{nullptr},
       nkey_update_(0),
+      draining_(false),
       tx_{
           .data = std::unique_ptr<uint8_t[]>(new uint8_t[64_k]),
       } {
   ev_io_init(&wev_, writecb, 0, EV_WRITE);
   wev_.data = this;
-  ev_timer_init(&timer_, timeoutcb, 0., 0.);
+  ev_timer_init(&timer_, timeoutcb, 0.,
+                static_cast<double>(config.timeout) / NGTCP2_SECONDS);
   timer_.data = this;
+  ev_timer_init(&rttimer_, retransmitcb, 0., 0.);
+  rttimer_.data = this;
+  if (config.app_state != config.app_state_type::ON_OFF_NOT_USED) {
+    ngtcp2_duration next_change_period;
+    if (config.app_schedule_used) {
+      if (!config.app_state_send_period_queue.empty()) {
+        next_change_period = config.app_state_send_period_queue.front();
+        config.app_state_send_period_queue.pop();
+      } else {
+        ev_timer_init(&quittimer_, timeoutquit, 0., 0.);
+        ev_timer_start(loop_, &quittimer_);
+        quittimer_.data = this;
+      }
+    } else {
+      next_change_period = config.app_state_send_period;
+    }
+    ev_timer_init(&onofftimer_, onoffchangecb, static_cast<double>(next_change_period) / NGTCP2_SECONDS,
+                  0.);
+    ev_timer_start(loop_, &onofftimer_);
+    onofftimer_.data = this;
+  }
 
   application_tx_key_cb_ = [this]() { return setup_httpconn(); };
 }
@@ -657,6 +826,10 @@ Handler::~Handler() {
     std::cerr << scid_ << " Closing QUIC connection " << std::endl;
   }
 
+  if (config.app_state != config.app_state_type::ON_OFF_NOT_USED) {
+    ev_timer_stop(loop_, &onofftimer_);
+  }
+  ev_timer_stop(loop_, &rttimer_);
   ev_timer_stop(loop_, &timer_);
   ev_io_stop(loop_, &wev_);
 
@@ -666,6 +839,10 @@ Handler::~Handler() {
 
   if (qlog_) {
     fclose(qlog_);
+  }
+
+  if (config.quit_timeout_is_set) {
+    exit(EXIT_SUCCESS);
   }
 }
 
@@ -721,6 +898,14 @@ int Handler::handshake_completed() {
                 << std::endl;
     }
     return -1;
+  }
+
+  // Call timer to quit connection in config.quit_timeout
+  if (config.quit_timeout_is_set) {
+    ev_timer_init(&quittimer_, timeoutquit,
+                  static_cast<double>(config.quit_timeout) / NGTCP2_SECONDS, 0.);
+    ev_timer_start(loop_, &quittimer_);
+    quittimer_.data = this;
   }
 
   return 0;
@@ -1377,7 +1562,6 @@ int Handler::init(const Endpoint &ep, const Address &local_addr,
       nullptr, // lost_datagram
       ngtcp2_crypto_get_path_challenge_data_cb,
       stream_stop_sending,
-      ngtcp2_crypto_version_negotiation_cb,
   };
 
   scid_.datalen = NGTCP2_SV_SCIDLEN;
@@ -1396,10 +1580,12 @@ int Handler::init(const Endpoint &ep, const Address &local_addr,
   settings.max_window = config.max_window;
   settings.max_stream_window = config.max_stream_window;
   settings.handshake_timeout = config.handshake_timeout;
-  settings.no_pmtud = config.no_pmtud;
   if (config.max_udp_payload_size) {
     settings.max_udp_payload_size = config.max_udp_payload_size;
     settings.no_udp_payload_size_shaping = 1;
+  } else {
+    settings.max_udp_payload_size = server_max_udp_payload_size;
+    settings.assume_symmetric_path = 1;
   }
   if (!config.qlog_dir.empty()) {
     auto path = std::string{config.qlog_dir};
@@ -1415,14 +1601,6 @@ int Handler::init(const Endpoint &ep, const Address &local_addr,
     settings.qlog.write = ::write_qlog;
     settings.qlog.odcid = *scid;
   }
-  if (!config.preferred_versions.empty()) {
-    settings.preferred_versions = config.preferred_versions.data();
-    settings.preferred_versionslen = config.preferred_versions.size();
-  }
-  if (!config.other_versions.empty()) {
-    settings.other_versions = config.other_versions.data();
-    settings.other_versionslen = config.other_versions.size();
-  }
 
   ngtcp2_transport_params params;
   ngtcp2_transport_params_default(&params);
@@ -1436,6 +1614,11 @@ int Handler::init(const Endpoint &ep, const Address &local_addr,
   params.max_idle_timeout = config.timeout;
   params.stateless_reset_token_present = 1;
   params.active_connection_id_limit = 7;
+
+  params.bbr2_loss_tresh = config.bbr2_loss_tresh;
+  params.bbr2_beta = config.bbr2_beta;
+  params.bbr2_probe_rtt_cwnd_gain = config.bbr2_probe_rtt_cwnd_gain;
+  params.bbr2_probe_rtt_duration = config.bbr2_probe_rtt_duration;
 
   // Uberariy
   params.frcst_rtt = config.frcst_rtt;
@@ -1456,6 +1639,20 @@ int Handler::init(const Endpoint &ep, const Address &local_addr,
     std::cerr << "Could not generate stateless reset token" << std::endl;
     return -1;
   }
+
+  /* Set initial speed control parameters */
+  if (config.speed_limit_is_set) {
+    speed_.speed_update = std::chrono::milliseconds(INOPSY_SPEED_UPDATE_IN_MLS);
+    speed_.limit_per_update = config.speed_limit_per_update;
+    speed_.average_packet_size = INOPSY_SPEED_INITIAL_PCKT_SIZE;
+    speed_.previous_update_debt = 0;
+
+    speed_.speed_interval = speed_calculate_interval(speed_.limit_per_update, speed_.average_packet_size,
+                                                     &speed_.previous_update_debt, speed_.speed_update);
+
+    speed_.next_send = std::chrono::system_clock::now() + speed_.speed_interval;
+    speed_.next_update = std::chrono::system_clock::now() + speed_.speed_update;
+  } // InOpSy
 
   if (config.preferred_ipv4_addr.len || config.preferred_ipv6_addr.len) {
     params.preferred_address_present = 1;
@@ -1521,6 +1718,7 @@ int Handler::init(const Endpoint &ep, const Address &local_addr,
   ngtcp2_conn_set_tls_native_handle(conn_, tls_session_.get_native_handle());
 
   ev_io_set(&wev_, ep.fd, EV_WRITE);
+  ev_timer_again(loop_, &timer_);
 
   return 0;
 }
@@ -1587,9 +1785,25 @@ int Handler::on_read(const Endpoint &ep, const Address &local_addr,
     return rv;
   }
 
-  update_timer();
+  reset_idle_timer();
 
   return 0;
+}
+
+void Handler::reset_idle_timer() {
+  auto now = util::timestamp(loop_);
+  auto idle_expiry = ngtcp2_conn_get_idle_expiry(conn_);
+  timer_.repeat =
+      idle_expiry > now
+          ? static_cast<ev_tstamp>(idle_expiry - now) / NGTCP2_SECONDS
+          : 1e-9;
+
+  if (!config.quiet) {
+    std::cerr << "Set idle timer=" << std::fixed << timer_.repeat << "s"
+              << std::defaultfloat << std::endl;
+  }
+
+  ev_timer_again(loop_, &timer_);
 }
 
 int Handler::handle_expiry() {
@@ -1621,11 +1835,13 @@ int Handler::on_write() {
     }
   }
 
-  if (auto rv = write_streams(); rv != 0) {
-    return rv;
+  if (config.app_state != config.app_state_type::ON_OFF_STATE_WAIT) {
+    if (auto rv = write_streams(); rv != 0) {
+      return rv;
+    }
   }
 
-  update_timer();
+  schedule_retransmit();
 
   return 0;
 }
@@ -1635,13 +1851,12 @@ int Handler::write_streams() {
   ngtcp2_path_storage ps, prev_ps;
   uint32_t prev_ecn = 0;
   size_t pktcnt = 0;
-  auto max_udp_payload_size = ngtcp2_conn_get_max_udp_payload_size(conn_);
+  auto max_udp_payload_size = ngtcp2_conn_get_path_max_udp_payload_size(conn_);
   size_t max_pktcnt =
       std::min(static_cast<size_t>(64_k), ngtcp2_conn_get_send_quantum(conn_)) /
       max_udp_payload_size;
   uint8_t *bufpos = tx_.data.get();
   ngtcp2_pkt_info pi;
-  size_t gso_size = 0;
   auto ts = util::timestamp(loop_);
 
   ngtcp2_path_storage_zero(&ps);
@@ -1649,7 +1864,7 @@ int Handler::write_streams() {
 
   if (config.cc_algo != NGTCP2_CC_ALGO_BBR &&
       config.cc_algo != NGTCP2_CC_ALGO_BBR2 &&
-      config.cc_algo != NGTCP2_CC_ALGO_BBRFRCST) {
+>     config.cc_algo != NGTCP2_CC_ALGO_BBRFRCST) {
     /* If bbr is chosen, pacing is enabled.  No need to cap the number
        of datagrams to send. */
     max_pktcnt =
@@ -1662,7 +1877,7 @@ int Handler::write_streams() {
     nghttp3_ssize sveccnt = 0;
 
     if (httpconn_ && ngtcp2_conn_get_max_data_left(conn_)) {
-      sveccnt = nghttp3_conn_writev_stream(httpconn_, &stream_id, &fin,
+	  sveccnt = nghttp3_conn_writev_stream(httpconn_, &stream_id, &fin,
                                            vec.data(), vec.size());
       if (sveccnt < 0) {
         std::cerr << "nghttp3_conn_writev_stream: " << nghttp3_strerror(sveccnt)
@@ -1682,10 +1897,30 @@ int Handler::write_streams() {
     if (fin) {
       flags |= NGTCP2_WRITE_STREAM_FLAG_FIN;
     }
-
+    
     auto nwrite = ngtcp2_conn_writev_stream(
         conn_, &ps.path, &pi, bufpos, max_udp_payload_size, &ndatalen, flags,
         stream_id, reinterpret_cast<const ngtcp2_vec *>(v), vcnt, ts);
+
+    /* If speed limit is set, we use this segment to reduce amount of
+       bytes left to send. */
+    if (config.speed_limit_is_set && (ndatalen > 0) && (nwrite >= 0)) {
+      speed_.previous_update_debt -= ndatalen;
+      std::this_thread::sleep_until(ngtcp2_min(speed_.next_send, 
+                                               speed_.next_update));
+      speed_.next_send += speed_.speed_interval;
+      // Ждем т.к на мелких скоростях
+      while (speed_.previous_update_debt <= 0) {
+        /* We using 'while' not 'if', because on low speeds (<10K bytes per 
+           seconds) we have to accumulate bytes through >1 updates. */
+        std::this_thread::sleep_until(speed_.next_update);
+        speed_.average_packet_size = (speed_.average_packet_size + ndatalen) / 2;
+        speed_.speed_interval = speed_calculate_interval(speed_.limit_per_update, speed_.average_packet_size,
+                                                           &speed_.previous_update_debt, speed_.speed_update);
+        speed_.next_update += speed_.speed_update;
+      }
+    } // InOpSy
+
     if (nwrite < 0) {
       switch (nwrite) {
       case NGTCP2_ERR_STREAM_DATA_BLOCKED:
@@ -1746,7 +1981,7 @@ int Handler::write_streams() {
         return handle_error();
       }
     }
-
+	
     if (nwrite == 0) {
       if (bufpos - tx_.data.get()) {
         auto &ep = *static_cast<Endpoint *>(prev_ps.path.user_data);
@@ -1755,17 +1990,20 @@ int Handler::write_streams() {
 
         if (auto rv = server_->send_packet(ep, prev_ps.path.local,
                                            prev_ps.path.remote, prev_ecn, data,
-                                           datalen, gso_size);
+                                           datalen, max_udp_payload_size);
             rv != NETWORK_ERR_OK) {
           assert(NETWORK_ERR_SEND_BLOCKED == rv);
 
           on_send_blocked(ep, prev_ps.path.local, prev_ps.path.remote, prev_ecn,
-                          data, datalen, gso_size);
+                          data, datalen, max_udp_payload_size);
 
           start_wev_endpoint(ep);
           ngtcp2_conn_update_pkt_tx_time(conn_, ts);
+          reset_idle_timer();
           return 0;
         }
+
+        reset_idle_timer();
       }
 
       ev_io_stop(loop_, &wev_);
@@ -1781,66 +2019,71 @@ int Handler::write_streams() {
     if (pktcnt == 0) {
       ngtcp2_path_copy(&prev_ps.path, &ps.path);
       prev_ecn = pi.ecn;
-      gso_size = nwrite;
-    } else if (!ngtcp2_path_eq(&prev_ps.path, &ps.path) || prev_ecn != pi.ecn ||
-               static_cast<size_t>(nwrite) > gso_size) {
+    } else if (!ngtcp2_path_eq(&prev_ps.path, &ps.path) || prev_ecn != pi.ecn) {
       auto &ep = *static_cast<Endpoint *>(prev_ps.path.user_data);
       auto data = tx_.data.get();
       auto datalen = bufpos - data - nwrite;
 
-      if (auto rv =
-              server_->send_packet(ep, prev_ps.path.local, prev_ps.path.remote,
-                                   prev_ecn, data, datalen, gso_size);
+      if (auto rv = server_->send_packet(ep, prev_ps.path.local,
+                                         prev_ps.path.remote, prev_ecn, data,
+                                         datalen, max_udp_payload_size);
           rv != 0) {
         assert(NETWORK_ERR_SEND_BLOCKED == rv);
 
         on_send_blocked(ep, prev_ps.path.local, prev_ps.path.remote, prev_ecn,
-                        data, datalen, gso_size);
+                        data, datalen, max_udp_payload_size);
 
         on_send_blocked(*static_cast<Endpoint *>(ps.path.user_data),
                         ps.path.local, ps.path.remote, pi.ecn, bufpos - nwrite,
-                        nwrite, 0);
+                        nwrite, max_udp_payload_size);
 
         start_wev_endpoint(ep);
       } else {
         auto &ep = *static_cast<Endpoint *>(ps.path.user_data);
         auto data = bufpos - nwrite;
 
-        if (auto rv = server_->send_packet(ep, ps.path.local, ps.path.remote,
-                                           pi.ecn, data, nwrite, 0);
+        if (auto rv =
+                server_->send_packet(ep, ps.path.local, ps.path.remote, pi.ecn,
+                                     data, nwrite, max_udp_payload_size);
             rv != 0) {
           assert(NETWORK_ERR_SEND_BLOCKED == rv);
 
           on_send_blocked(ep, ps.path.local, ps.path.remote, pi.ecn, data,
-                          nwrite, 0);
+                          nwrite, max_udp_payload_size);
         }
 
         start_wev_endpoint(ep);
       }
 
       ngtcp2_conn_update_pkt_tx_time(conn_, ts);
+      reset_idle_timer();
       return 0;
     }
 
-    if (++pktcnt == max_pktcnt || static_cast<size_t>(nwrite) < gso_size) {
+    if (++pktcnt == max_pktcnt ||
+        static_cast<size_t>(nwrite) < max_udp_payload_size) {
       auto &ep = *static_cast<Endpoint *>(ps.path.user_data);
       auto data = tx_.data.get();
       auto datalen = bufpos - data;
 
-      if (auto rv = server_->send_packet(ep, ps.path.local, ps.path.remote,
-                                         pi.ecn, data, datalen, gso_size);
+      if (auto rv =
+              server_->send_packet(ep, ps.path.local, ps.path.remote, pi.ecn,
+                                   data, datalen, max_udp_payload_size);
           rv != 0) {
         assert(NETWORK_ERR_SEND_BLOCKED == rv);
 
         on_send_blocked(ep, ps.path.local, ps.path.remote, pi.ecn, data,
-                        datalen, gso_size);
+                        datalen, max_udp_payload_size);
       }
 
       start_wev_endpoint(ep);
       ngtcp2_conn_update_pkt_tx_time(conn_, ts);
+      reset_idle_timer();
       return 0;
     }
 #else  // !NGTCP2_ENABLE_UDP_GSO
+    reset_idle_timer();
+
     auto &ep = *static_cast<Endpoint *>(ps.path.user_data);
     auto data = tx_.data.get();
     auto datalen = bufpos - data;
@@ -1872,7 +2115,7 @@ int Handler::write_streams() {
 void Handler::on_send_blocked(Endpoint &ep, const ngtcp2_addr &local_addr,
                               const ngtcp2_addr &remote_addr, unsigned int ecn,
                               const uint8_t *data, size_t datalen,
-                              size_t gso_size) {
+                              size_t max_udp_payload_size) {
   assert(tx_.num_blocked || !tx_.send_blocked);
   assert(tx_.num_blocked < 2);
 
@@ -1889,7 +2132,7 @@ void Handler::on_send_blocked(Endpoint &ep, const ngtcp2_addr &local_addr,
   p.ecn = ecn;
   p.data = data;
   p.datalen = datalen;
-  p.gso_size = gso_size;
+  p.max_udp_payload_size = max_udp_payload_size;
 }
 
 void Handler::start_wev_endpoint(const Endpoint &ep) {
@@ -1922,7 +2165,7 @@ int Handler::send_blocked_packet() {
     };
 
     auto rv = server_->send_packet(*p.endpoint, local_addr, remote_addr, p.ecn,
-                                   p.data, p.datalen, p.gso_size);
+                                   p.data, p.datalen, p.max_udp_payload_size);
     if (rv != 0) {
       assert(NETWORK_ERR_SEND_BLOCKED == rv);
 
@@ -1941,10 +2184,14 @@ int Handler::send_blocked_packet() {
 
 void Handler::signal_write() { ev_io_start(loop_, &wev_); }
 
+bool Handler::draining() const { return draining_; }
+
 void Handler::start_draining_period() {
+  draining_ = true;
+
+  ev_timer_stop(loop_, &rttimer_);
   ev_io_stop(loop_, &wev_);
 
-  ev_set_cb(&timer_, close_waitcb);
   timer_.repeat =
       static_cast<ev_tstamp>(ngtcp2_conn_get_pto(conn_)) / NGTCP2_SECONDS * 3;
   ev_timer_again(loop_, &timer_);
@@ -1956,14 +2203,13 @@ void Handler::start_draining_period() {
 }
 
 int Handler::start_closing_period() {
-  if (!conn_ || ngtcp2_conn_is_in_closing_period(conn_) ||
-      ngtcp2_conn_is_in_draining_period(conn_)) {
+  if (!conn_ || ngtcp2_conn_is_in_closing_period(conn_)) {
     return 0;
   }
 
+  ev_timer_stop(loop_, &rttimer_);
   ev_io_stop(loop_, &wev_);
 
-  ev_set_cb(&timer_, close_waitcb);
   timer_.repeat =
       static_cast<ev_tstamp>(ngtcp2_conn_get_pto(conn_)) / NGTCP2_SECONDS * 3;
   ev_timer_again(loop_, &timer_);
@@ -1980,11 +2226,11 @@ int Handler::start_closing_period() {
   ngtcp2_path_storage_zero(&ps);
 
   ngtcp2_pkt_info pi;
-  auto n = ngtcp2_conn_write_connection_close(
+  auto n = ngtcp2_conn_write_connection_close2(
       conn_, &ps.path, &pi, conn_closebuf_->wpos(), conn_closebuf_->left(),
       &last_error_, util::timestamp(loop_));
   if (n < 0) {
-    std::cerr << "ngtcp2_conn_write_connection_close: " << ngtcp2_strerror(n)
+    std::cerr << "ngtcp2_conn_write_connection_close2: " << ngtcp2_strerror(n)
               << std::endl;
     return -1;
   }
@@ -1999,17 +2245,8 @@ int Handler::start_closing_period() {
 }
 
 int Handler::handle_error() {
-  if (last_error_.type ==
-      NGTCP2_CONNECTION_CLOSE_ERROR_CODE_TYPE_TRANSPORT_IDLE_CLOSE) {
-    return -1;
-  }
-
   if (start_closing_period() != 0) {
     return -1;
-  }
-
-  if (ngtcp2_conn_is_in_draining_period(conn_)) {
-    return NETWORK_ERR_CLOSE_WAIT;
   }
 
   if (auto rv = send_conn_close(); rv != NETWORK_ERR_OK) {
@@ -2026,7 +2263,6 @@ int Handler::send_conn_close() {
 
   assert(conn_closebuf_ && conn_closebuf_->size());
   assert(conn_);
-  assert(!ngtcp2_conn_is_in_draining_period(conn_));
 
   auto path = ngtcp2_conn_get_path(conn_);
 
@@ -2035,28 +2271,18 @@ int Handler::send_conn_close() {
       /* ecn = */ 0, conn_closebuf_->rpos(), conn_closebuf_->size(), 0);
 }
 
-void Handler::update_timer() {
+void Handler::schedule_retransmit() {
   auto expiry = ngtcp2_conn_get_expiry(conn_);
   auto now = util::timestamp(loop_);
-
-  if (expiry <= now) {
-    if (!config.quiet) {
-      auto t = static_cast<ev_tstamp>(now - expiry) / NGTCP2_SECONDS;
-      std::cerr << "Timer has already expired: " << t << "s" << std::endl;
-    }
-
-    ev_feed_event(loop_, &timer_, EV_TIMER);
-
-    return;
-  }
-
-  auto t = static_cast<ev_tstamp>(expiry - now) / NGTCP2_SECONDS;
-  if (!config.quiet) {
-    std::cerr << "Set timer=" << std::fixed << t << "s" << std::defaultfloat
-              << std::endl;
-  }
-  timer_.repeat = t;
-  ev_timer_again(loop_, &timer_);
+  auto t = expiry < now ? 1e-9
+                        : static_cast<ev_tstamp>(expiry - now) / NGTCP2_SECONDS;
+  // Disable, as it writes too much
+  // if (!config.quiet) {
+  //   std::cerr << "Set timer=" << std::fixed << t << "s" << std::defaultfloat
+  //             << std::endl;
+  // }
+  rttimer_.repeat = t;
+  ev_timer_again(loop_, &rttimer_);
 }
 
 int Handler::recv_stream_data(uint32_t flags, int64_t stream_id,
@@ -2263,8 +2489,6 @@ int create_sock(Address &local_addr, const char *addr, const char *port,
     }
 
     fd_set_recv_ecn(fd, rp->ai_family);
-    fd_set_ip_mtu_discover(fd, rp->ai_family);
-    fd_set_ip_dontfrag(fd, family);
 
     if (bind(fd, rp->ai_addr, rp->ai_addrlen) != -1) {
       break;
@@ -2348,8 +2572,6 @@ int add_endpoint(std::vector<Endpoint> &endpoints, const Address &addr) {
   }
 
   fd_set_recv_ecn(fd, addr.su.sa.sa_family);
-  fd_set_ip_mtu_discover(fd, addr.su.sa.sa_family);
-  fd_set_ip_dontfrag(fd, addr.su.sa.sa_family);
 
   if (bind(fd, &addr.su.sa, addr.len) == -1) {
     std::cerr << "bind: " << strerror(errno) << std::endl;
@@ -2459,6 +2681,10 @@ int Server::on_read(Endpoint &ep) {
                 << " bytes" << std::endl;
     }
 
+    if (config.inopsy_log_is_set) {
+      fprintf(stderr, "!ReceivedBytes:%ld\n", (long)nread);
+    }
+
     if (debug::packet_lost(config.rx_loss_prob)) {
       if (!config.quiet) {
         std::cerr << "** Simulated incoming packet loss **" << std::endl;
@@ -2499,6 +2725,15 @@ int Server::on_read(Endpoint &ep) {
         break;
       case NGTCP2_ERR_RETRY:
         send_retry(&hd, ep, *local_addr, &su.sa, msg.msg_namelen, nread * 3);
+        continue;
+      case NGTCP2_ERR_VERSION_NEGOTIATION:
+        if (!config.quiet) {
+          std::cerr << "Unsupported version: Send Version Negotiation"
+                    << std::endl;
+        }
+        send_version_negotiation(hd.version, hd.scid.data, hd.scid.datalen,
+                                 hd.dcid.data, hd.dcid.datalen, ep, *local_addr,
+                                 &su.sa, msg.msg_namelen);
         continue;
       default:
         if (!config.quiet) {
@@ -2610,8 +2845,7 @@ int Server::on_read(Endpoint &ep) {
     }
 
     auto h = (*handler_it).second;
-    auto conn = h->conn();
-    if (ngtcp2_conn_is_in_closing_period(conn)) {
+    if (ngtcp2_conn_is_in_closing_period(h->conn())) {
       // TODO do exponential backoff.
       switch (h->send_conn_close()) {
       case 0:
@@ -2621,7 +2855,7 @@ int Server::on_read(Endpoint &ep) {
       }
       continue;
     }
-    if (ngtcp2_conn_is_in_draining_period(conn)) {
+    if (h->draining()) {
       continue;
     }
 
@@ -3003,6 +3237,10 @@ int Server::send_packet(Endpoint &ep, const ngtcp2_addr &local_addr,
               << " bytes" << std::endl;
   }
 
+  if (config.inopsy_log_is_set) {
+    fprintf(stderr, "!SentBytes:%ld\n", (long)nwrite);
+  }
+
   return NETWORK_ERR_OK;
 }
 
@@ -3121,6 +3359,17 @@ void config_set_default(Config &config) {
   config.initial_rtt = NGTCP2_DEFAULT_INITIAL_RTT;
   config.max_gso_dgrams = 10;
   config.handshake_timeout = NGTCP2_DEFAULT_HANDSHAKE_TIMEOUT;
+  // InOpSy parameters:
+  config.speed_limit_is_set = 0;
+  config.quit_timeout_is_set = 0;
+  config.bbr2_loss_tresh = 0.02;
+  config.bbr2_beta = 0.7;
+  config.bbr2_probe_rtt_cwnd_gain = 0.5;
+  config.bbr2_probe_rtt_duration = 200 * NGTCP2_MILLISECONDS;
+  config.app_state = config.app_state_type::ON_OFF_NOT_USED;
+  config.app_schedule_used = false;
+  config.filesize_zero_is_set = false;
+  config.inopsy_log_is_set = false;
   config.frcst_rtt = 0;
   config.frcst_loss = 0;
   config.frcst_bw = 0;
@@ -3260,26 +3509,60 @@ Options:
               Set the QUIC handshake timeout.
               Default: )"
             << util::format_duration(config.handshake_timeout) << R"(
-  --preferred-versions=<HEX>[[,<HEX>]...]
-              Specify  QUIC versions  in hex  string in  the order  of
-              preference.  Server negotiates one  of those versions if
-              client  initially  selects  a  less  preferred  version.
-              These versions must be  supported by libngtcp2.  Instead
-              of  specifying hex  string,  there  are special  aliases
-              available:  "v1"   indicates  QUIC  v1,   and  "v2draft"
-              indicates QUIC v2 draft.
-  --other-versions=<HEX>[[,<HEX>]...]
-              Specify QUIC  versions in  hex string  that are  sent in
-              other_versions  field  of version_information  transport
-              parameter.  This list can include a version which is not
-              supported  by  libngtcp2.   Instead  of  specifying  hex
-              string,  there  are   special  aliases  available:  "v1"
-              indicates  QUIC  v1,  and "v2draft"  indicates  QUIC  v2
-              draft.
-  --no-pmtud  Disables Path MTU Discovery.
-  -h, --help  Display this help and exit.
+  --speed=<SIZE>
+              InOpSy parameter, that defines maximum data sent per
+              second. If flag is not set, no speed limit is set.
+  --quit-timeout=<DURATION>
+              InOpSy parameter: Set connection duration timeout.
+              If the time set is up, we close connection and quit.
+              If parameter is not set, there is no such limitation.
+  --bbr2-params=<DOUBLE>,<DOUBLE>,<DOUBLE>,<DURATION>
+              InOpSy parameters, defining constants in BBRv2:
+                - BBRLossTresh: [0.0, 1.0]        default = 0.02
+                - BBRBeta: [0.0, 1.0]             default = 0.7
+                - BBRProbeRttCwndGain: [0.0, 1.0] default = 0.5
+                - ProbeRTTDuration                default = 200 ms
+              If parameters are not set, they equal default values.
+  --on-off=<DURATION>,<DURATION>
+              InOpSy parameters, defining time periods for on/off app.
+              Must be set to activate on/off application.
+                - Send period
+                - Wait period                 default = Send period
+              If neither this nor next parameter is set, we don't use 
+              on/off app.
+  --on-off-periods-json=<PATH>
+              InOpSy parameter, defining jsonfile, containing periods of
+              time used in on-off application in seconds.
+                {
+                  "wait": [
+                            FLOAT,
+                            FLOAT,
+                            ...
+                  ],
+                  "send": [
+                            FLOAT,
+                            FLOAT,
+                            ...
+                  ]
+                }
+              If neither this nor previous parameter is set, we don't use 
+              on/off app.
+  --filesize-zero=<SIZE>
+              InOpSy parameter.
+              If this parameter is used, we don't send a file, that 
+              client chooses, we send an allocated file, that contains
+              zeros of specified size.
+               ---
+              Knowing an average estimate of bandwidth available, or 
+              using --speed parameter together with this parameter and
+              with --quit-timeout, we can modulate connection time
+              (both upper and lower) limitations.
+  --inopsy-log
+              Use InOpSy type logs, that tend to speed up statistics
+              aggregation and simplify stderr output.
   --bbrfrcst-params=<DURATION>,<P>,<SIZE>
               Parameters: RTT, Loss, Bandwidth for BBRForecast cc algo.
+  -h, --help  Display this help and exit.
 
 ---
 
@@ -3295,6 +3578,18 @@ Options:
 } // namespace
 
 std::ofstream keylog_file;
+
+void run_server_thread(const char *addr, const char *port, TLSServerContext tls_ctx) {
+  Server s(EV_DEFAULT, tls_ctx);
+  if (s.init(addr, port) != 0) {
+    exit(EXIT_FAILURE);
+  }
+
+  ev_run(EV_DEFAULT, 0);
+
+  s.disconnect();
+  s.close();
+}
 
 int main(int argc, char **argv) {
   config_set_default(config);
@@ -3335,10 +3630,14 @@ int main(int argc, char **argv) {
         {"max-stream-window", required_argument, &flag, 24},
         {"max-gso-dgrams", required_argument, &flag, 25},
         {"handshake-timeout", required_argument, &flag, 26},
-        {"preferred-versions", required_argument, &flag, 27},
-        {"other-versions", required_argument, &flag, 28},
-        {"no-pmtud", no_argument, &flag, 29},
-        {"bbrfrcst-params", required_argument, &flag, 30},
+        {"speed", required_argument, &flag, 27},
+        {"quit-timeout", required_argument, &flag, 28},
+        {"bbr2-params", required_argument, &flag, 29},
+        {"on-off", required_argument, &flag, 30},
+        {"on-off-periods-json", required_argument, &flag, 31},
+        {"filesize-zero", required_argument, &flag, 32},
+        {"inopsy-log", no_argument, &flag, 33},
+        {"bbrfrcst-params", required_argument, &flag, 34},
         {nullptr, 0, nullptr, 0}};
 
     auto optidx = 0;
@@ -3597,54 +3896,133 @@ int main(int argc, char **argv) {
           config.handshake_timeout = *t;
         }
         break;
-      case 27: {
-        // --preferred-versions
-        auto l = util::split_str(optarg);
-        config.preferred_versions.resize(l.size());
-        auto it = std::begin(config.preferred_versions);
-        for (const auto &k : l) {
-          if (k == "v1") {
-            *it++ = NGTCP2_PROTO_VER_V1;
-            continue;
-          }
-          if (k == "v2draft") {
-            *it++ = NGTCP2_PROTO_VER_V2_DRAFT;
-            continue;
-          }
-          auto v = strtol(k.c_str(), nullptr, 16);
-          if (!ngtcp2_is_supported_version(v)) {
-            std::cerr << "preferred-versions: version not supported: " << k
-                      << std::endl;
-            exit(EXIT_FAILURE);
-          }
-          *it++ = v;
+      case 27:
+        // --speed
+        if (auto n = util::parse_uint_iec(optarg); !n) {
+          std::cerr << "speed: invalid argument" << std::endl;
+          exit(EXIT_FAILURE);
+        } else {
+          config.speed_limit_per_update = (*n) * INOPSY_SPEED_UPDATE_IN_MLS / 1000;
+          config.speed_limit_is_set = true;
         }
         break;
-      }
-      case 28: {
-        // --other-versions
-        auto l = util::split_str(optarg);
-        config.other_versions.resize(l.size());
-        auto it = std::begin(config.other_versions);
-        for (const auto &v : l) {
-          if (v == "v1") {
-            *it++ = NGTCP2_PROTO_VER_V1;
-            continue;
-          }
-          if (v == "v2draft") {
-            *it++ = NGTCP2_PROTO_VER_V2_DRAFT;
-            continue;
-          }
-          *it++ = strtol(v.c_str(), nullptr, 16);
+      case 28:
+        // --quit-timeout
+        if (auto t = util::parse_duration(optarg); !t) {
+          std::cerr << "quit-timeout: invalid argument" << std::endl;
+          exit(EXIT_FAILURE);
+        } else {
+          config.quit_timeout = *t;
+          config.quit_timeout_is_set = true;
         }
         break;
-      }
       case 29: {
-        // --no-pmtud
-        config.no_pmtud = true;
+        // --bbr2-params
+        std::stringstream ss(optarg);
+        std::string substr;
+        getline(ss, substr, ',');
+        config.bbr2_loss_tresh = std::stod(substr);
+        getline(ss, substr, ',');
+        config.bbr2_beta = std::stod(substr);
+        getline(ss, substr, ',');
+        config.bbr2_probe_rtt_cwnd_gain = std::stod(substr);
+        getline(ss, substr);
+        if (auto t = util::parse_duration(substr); !t) {
+          std::cerr << "--bbr2-params bbr2_probe_rtt_duration: invalid argument" 
+                    << std::endl;
+          exit(EXIT_FAILURE);
+        } else {
+          config.bbr2_probe_rtt_duration = *t;
+        }
         break;
       }
       case 30: {
+        // --on-off
+        std::stringstream ss(optarg);
+        std::string s = ss.str();
+        size_t commas = std::count(s.begin(), s.end(), ',');
+        std::string substr;
+        getline(ss, substr, ',');
+        if (auto t = util::parse_duration(substr); !t) {
+          std::cerr << "--on-off Send period: invalid argument" 
+                    << std::endl;
+          exit(EXIT_FAILURE);
+        } else {
+          config.app_state = config.app_state_type::ON_OFF_STATE_SEND; 
+          config.app_state_send_period = *t;
+        }
+        if (commas == 2) {
+          // Two parameters are set
+          getline(ss, substr);
+          if (auto t = util::parse_duration(substr); !t) {
+            std::cerr << "--on-off Wait period: invalid argument" 
+                      << std::endl;
+            exit(EXIT_FAILURE);
+          } else {
+            config.app_state_wait_period = *t;
+          }
+        } else if (commas == 1) {
+          config.app_state_wait_period = config.app_state_send_period;
+        } else {
+          std::cerr << "--on-off Wait period: invalid argument" 
+                      << std::endl;
+          exit(EXIT_FAILURE);
+        }
+        config.app_schedule_used = false;
+        break;
+      }
+      case 31: {
+        // --on-off-periods-json
+        std::ifstream file(optarg);
+        json on_off_periods = json::parse(file);
+        for (auto& it : on_off_periods["send"]) {
+          float f;
+          try {
+            f = it.get<float>();
+          }
+          catch (const std::exception& E) {
+            std::cerr << "on-off-periods-json: invalid file format" << std::endl;
+            exit(EXIT_FAILURE);
+          }
+          ngtcp2_duration t = NGTCP2_SECONDS * f;
+          std::cout << "Push into queue 1 " << t << "\n";
+          config.app_state_send_period_queue.push(t);
+        }
+        for (auto& it : on_off_periods["wait"]) {
+          float f;
+          try {
+            f = it.get<float>();
+          }
+          catch (const std::exception& E) {
+            std::cerr << "on-off-periods-json: invalid file format" << std::endl;
+            exit(EXIT_FAILURE);
+          }
+          ngtcp2_duration t = NGTCP2_SECONDS * f;
+          std::cout << "Push into queue 2 " << t << "\n";
+          config.app_state_wait_period_queue.push(t);
+        }
+        config.app_state = config.app_state_type::ON_OFF_STATE_SEND;
+        config.app_schedule_used = true;
+        break;
+      }
+      case 32: {
+        // --filesize-zero
+        if (auto n = util::parse_uint_iec(optarg); !n) {
+          std::cerr << "filesize-zero: invalid argument" << std::endl;
+          exit(EXIT_FAILURE);
+        } else {
+          config.filesize_zero = (*n);
+          config.filesize_zero_is_set = true;
+        }
+        break;
+      }
+      case 33: {
+        // --inopsy-log
+        config.quiet = true;
+        config.inopsy_log_is_set = true;
+        break;
+      }
+      case 34: {
         // --bbrfrcst-params
         std::stringstream ss(optarg);
         std::string substr;
@@ -3729,15 +4107,16 @@ int main(int argc, char **argv) {
     exit(EXIT_FAILURE);
   }
 
-  Server s(EV_DEFAULT, tls_ctx);
-  if (s.init(addr, port) != 0) {
-    exit(EXIT_FAILURE);
+  if (config.inopsy_log_is_set) {  
+    std::thread log_timer_thread(log_time);
+    std::thread server_thread(run_server_thread, addr, port, tls_ctx);
+
+    std::cerr << "Point1\n";
+    server_thread.join();
+    std::cerr << "Point2\n";
+  } else {
+    run_server_thread(addr, port, tls_ctx);
   }
-
-  ev_run(EV_DEFAULT, 0);
-
-  s.disconnect();
-  s.close();
 
   return EXIT_SUCCESS;
 }

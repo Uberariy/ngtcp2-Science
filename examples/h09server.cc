@@ -321,12 +321,11 @@ void writecb(struct ev_loop *loop, ev_io *w, int revents) {
 } // namespace
 
 namespace {
-void close_waitcb(struct ev_loop *loop, ev_timer *w, int revents) {
+void timeoutcb(struct ev_loop *loop, ev_timer *w, int revents) {
   auto h = static_cast<Handler *>(w->data);
   auto s = h->server();
-  auto conn = h->conn();
 
-  if (ngtcp2_conn_is_in_closing_period(conn)) {
+  if (ngtcp2_conn_is_in_closing_period(h->conn())) {
     if (!config.quiet) {
       std::cerr << "Closing Period is over" << std::endl;
     }
@@ -334,7 +333,7 @@ void close_waitcb(struct ev_loop *loop, ev_timer *w, int revents) {
     s->remove(h);
     return;
   }
-  if (ngtcp2_conn_is_in_draining_period(conn)) {
+  if (h->draining()) {
     if (!config.quiet) {
       std::cerr << "Draining Period is over" << std::endl;
     }
@@ -343,12 +342,16 @@ void close_waitcb(struct ev_loop *loop, ev_timer *w, int revents) {
     return;
   }
 
-  assert(0);
+  if (!config.quiet) {
+    std::cerr << "Timeout" << std::endl;
+  }
+
+  h->start_draining_period();
 }
 } // namespace
 
 namespace {
-void timeoutcb(struct ev_loop *loop, ev_timer *w, int revents) {
+void retransmitcb(struct ev_loop *loop, ev_timer *w, int revents) {
   int rv;
 
   auto h = static_cast<Handler *>(w->data);
@@ -388,13 +391,17 @@ Handler::Handler(struct ev_loop *loop, Server *server)
       qlog_(nullptr),
       scid_{},
       nkey_update_(0),
+      draining_(false),
       tx_{
           .data = std::unique_ptr<uint8_t[]>(new uint8_t[64_k]),
       } {
   ev_io_init(&wev_, writecb, 0, EV_WRITE);
   wev_.data = this;
-  ev_timer_init(&timer_, timeoutcb, 0., 0.);
+  ev_timer_init(&timer_, timeoutcb, 0.,
+                static_cast<double>(config.timeout) / NGTCP2_SECONDS);
   timer_.data = this;
+  ev_timer_init(&rttimer_, retransmitcb, 0., 0.);
+  rttimer_.data = this;
 }
 
 Handler::~Handler() {
@@ -402,6 +409,7 @@ Handler::~Handler() {
     std::cerr << scid_ << " Closing QUIC connection " << std::endl;
   }
 
+  ev_timer_stop(loop_, &rttimer_);
   ev_timer_stop(loop_, &timer_);
   ev_io_stop(loop_, &wev_);
 
@@ -702,8 +710,6 @@ int Handler::init(const Endpoint &ep, const Address &local_addr,
       nullptr, // ack_datagram
       nullptr, // lost_datagram
       ngtcp2_crypto_get_path_challenge_data_cb,
-      nullptr, // stream_stop_sending
-      ngtcp2_crypto_version_negotiation_cb,
   };
 
   scid_.datalen = NGTCP2_SV_SCIDLEN;
@@ -720,10 +726,12 @@ int Handler::init(const Endpoint &ep, const Address &local_addr,
   settings.cc_algo = config.cc_algo;
   settings.initial_rtt = config.initial_rtt;
   settings.handshake_timeout = config.handshake_timeout;
-  settings.no_pmtud = config.no_pmtud;
   if (config.max_udp_payload_size) {
     settings.max_udp_payload_size = config.max_udp_payload_size;
     settings.no_udp_payload_size_shaping = 1;
+  } else {
+    settings.max_udp_payload_size = server_max_udp_payload_size;
+    settings.assume_symmetric_path = 1;
   }
   if (!config.qlog_dir.empty()) {
     auto path = std::string{config.qlog_dir};
@@ -738,14 +746,6 @@ int Handler::init(const Endpoint &ep, const Address &local_addr,
     }
     settings.qlog.write = ::write_qlog;
     settings.qlog.odcid = *scid;
-  }
-  if (!config.preferred_versions.empty()) {
-    settings.preferred_versions = config.preferred_versions.data();
-    settings.preferred_versionslen = config.preferred_versions.size();
-  }
-  if (!config.other_versions.empty()) {
-    settings.other_versions = config.other_versions.data();
-    settings.other_versionslen = config.other_versions.size();
   }
 
   ngtcp2_transport_params params;
@@ -839,6 +839,7 @@ int Handler::init(const Endpoint &ep, const Address &local_addr,
   ngtcp2_conn_set_tls_native_handle(conn_, tls_session_.get_native_handle());
 
   ev_io_set(&wev_, ep.fd, EV_WRITE);
+  ev_timer_again(loop_, &timer_);
 
   return 0;
 }
@@ -905,9 +906,25 @@ int Handler::on_read(const Endpoint &ep, const Address &local_addr,
     return rv;
   }
 
-  update_timer();
+  reset_idle_timer();
 
   return 0;
+}
+
+void Handler::reset_idle_timer() {
+  auto now = util::timestamp(loop_);
+  auto idle_expiry = ngtcp2_conn_get_idle_expiry(conn_);
+  timer_.repeat =
+      idle_expiry > now
+          ? static_cast<ev_tstamp>(idle_expiry - now) / NGTCP2_SECONDS
+          : 1e-9;
+
+  if (!config.quiet) {
+    std::cerr << "Set idle timer=" << std::fixed << timer_.repeat << "s"
+              << std::defaultfloat << std::endl;
+  }
+
+  ev_timer_again(loop_, &timer_);
 }
 
 int Handler::handle_expiry() {
@@ -943,7 +960,7 @@ int Handler::on_write() {
     return rv;
   }
 
-  update_timer();
+  schedule_retransmit();
 
   return 0;
 }
@@ -953,13 +970,12 @@ int Handler::write_streams() {
   ngtcp2_path_storage ps, prev_ps;
   uint32_t prev_ecn = 0;
   size_t pktcnt = 0;
-  auto max_udp_payload_size = ngtcp2_conn_get_max_udp_payload_size(conn_);
+  auto max_udp_payload_size = ngtcp2_conn_get_path_max_udp_payload_size(conn_);
   size_t max_pktcnt =
       std::min(static_cast<size_t>(64_k), ngtcp2_conn_get_send_quantum(conn_)) /
       max_udp_payload_size;
   uint8_t *bufpos = tx_.data.get();
   ngtcp2_pkt_info pi;
-  size_t gso_size = 0;
   auto ts = util::timestamp(loop_);
 
   ngtcp2_path_storage_zero(&ps);
@@ -1032,17 +1048,20 @@ int Handler::write_streams() {
 
         if (auto rv = server_->send_packet(ep, prev_ps.path.local,
                                            prev_ps.path.remote, prev_ecn, data,
-                                           datalen, gso_size);
+                                           datalen, max_udp_payload_size);
             rv != NETWORK_ERR_OK) {
           assert(NETWORK_ERR_SEND_BLOCKED == rv);
 
           on_send_blocked(ep, prev_ps.path.local, prev_ps.path.remote, prev_ecn,
-                          data, datalen, gso_size);
+                          data, datalen, max_udp_payload_size);
 
           start_wev_endpoint(ep);
           ngtcp2_conn_update_pkt_tx_time(conn_, ts);
+          reset_idle_timer();
           return 0;
         }
+
+        reset_idle_timer();
       }
 
       ev_io_stop(loop_, &wev_);
@@ -1058,66 +1077,71 @@ int Handler::write_streams() {
     if (pktcnt == 0) {
       ngtcp2_path_copy(&prev_ps.path, &ps.path);
       prev_ecn = pi.ecn;
-      gso_size = nwrite;
-    } else if (!ngtcp2_path_eq(&prev_ps.path, &ps.path) || prev_ecn != pi.ecn ||
-               static_cast<size_t>(nwrite) > gso_size) {
+    } else if (!ngtcp2_path_eq(&prev_ps.path, &ps.path) || prev_ecn != pi.ecn) {
       auto &ep = *static_cast<Endpoint *>(prev_ps.path.user_data);
       auto data = tx_.data.get();
       auto datalen = bufpos - data - nwrite;
 
-      if (auto rv =
-              server_->send_packet(ep, prev_ps.path.local, prev_ps.path.remote,
-                                   prev_ecn, data, datalen, gso_size);
+      if (auto rv = server_->send_packet(ep, prev_ps.path.local,
+                                         prev_ps.path.remote, prev_ecn, data,
+                                         datalen, max_udp_payload_size);
           rv != 0) {
         assert(NETWORK_ERR_SEND_BLOCKED == rv);
 
         on_send_blocked(ep, prev_ps.path.local, prev_ps.path.remote, prev_ecn,
-                        data, datalen, gso_size);
+                        data, datalen, max_udp_payload_size);
 
         on_send_blocked(*static_cast<Endpoint *>(ps.path.user_data),
                         ps.path.local, ps.path.remote, pi.ecn, bufpos - nwrite,
-                        nwrite, 0);
+                        nwrite, max_udp_payload_size);
 
         start_wev_endpoint(ep);
       } else {
         auto &ep = *static_cast<Endpoint *>(ps.path.user_data);
         auto data = bufpos - nwrite;
 
-        if (auto rv = server_->send_packet(ep, ps.path.local, ps.path.remote,
-                                           pi.ecn, data, nwrite, 0);
+        if (auto rv =
+                server_->send_packet(ep, ps.path.local, ps.path.remote, pi.ecn,
+                                     data, nwrite, max_udp_payload_size);
             rv != 0) {
           assert(NETWORK_ERR_SEND_BLOCKED == rv);
 
           on_send_blocked(ep, ps.path.local, ps.path.remote, pi.ecn, data,
-                          nwrite, 0);
+                          nwrite, max_udp_payload_size);
         }
 
         start_wev_endpoint(ep);
       }
 
       ngtcp2_conn_update_pkt_tx_time(conn_, ts);
+      reset_idle_timer();
       return 0;
     }
 
-    if (++pktcnt == max_pktcnt || static_cast<size_t>(nwrite) < gso_size) {
+    if (++pktcnt == max_pktcnt ||
+        static_cast<size_t>(nwrite) < max_udp_payload_size) {
       auto &ep = *static_cast<Endpoint *>(ps.path.user_data);
       auto data = tx_.data.get();
       auto datalen = bufpos - data;
 
-      if (auto rv = server_->send_packet(ep, ps.path.local, ps.path.remote,
-                                         pi.ecn, data, datalen, gso_size);
+      if (auto rv =
+              server_->send_packet(ep, ps.path.local, ps.path.remote, pi.ecn,
+                                   data, datalen, max_udp_payload_size);
           rv != 0) {
         assert(NETWORK_ERR_SEND_BLOCKED == rv);
 
         on_send_blocked(ep, ps.path.local, ps.path.remote, pi.ecn, data,
-                        datalen, gso_size);
+                        datalen, max_udp_payload_size);
       }
 
       start_wev_endpoint(ep);
       ngtcp2_conn_update_pkt_tx_time(conn_, ts);
+      reset_idle_timer();
       return 0;
     }
 #else  // !NGTCP2_ENABLE_UDP_GSO
+    reset_idle_timer();
+
     auto &ep = *static_cast<Endpoint *>(ps.path.user_data);
     auto data = tx_.data.get();
     auto datalen = bufpos - data;
@@ -1149,7 +1173,7 @@ int Handler::write_streams() {
 void Handler::on_send_blocked(Endpoint &ep, const ngtcp2_addr &local_addr,
                               const ngtcp2_addr &remote_addr, unsigned int ecn,
                               const uint8_t *data, size_t datalen,
-                              size_t gso_size) {
+                              size_t max_udp_payload_size) {
   assert(tx_.num_blocked || !tx_.send_blocked);
   assert(tx_.num_blocked < 2);
 
@@ -1166,7 +1190,7 @@ void Handler::on_send_blocked(Endpoint &ep, const ngtcp2_addr &local_addr,
   p.ecn = ecn;
   p.data = data;
   p.datalen = datalen;
-  p.gso_size = gso_size;
+  p.max_udp_payload_size = max_udp_payload_size;
 }
 
 void Handler::start_wev_endpoint(const Endpoint &ep) {
@@ -1199,7 +1223,7 @@ int Handler::send_blocked_packet() {
     };
 
     auto rv = server_->send_packet(*p.endpoint, local_addr, remote_addr, p.ecn,
-                                   p.data, p.datalen, p.gso_size);
+                                   p.data, p.datalen, p.max_udp_payload_size);
     if (rv != 0) {
       assert(NETWORK_ERR_SEND_BLOCKED == rv);
 
@@ -1218,10 +1242,14 @@ int Handler::send_blocked_packet() {
 
 void Handler::signal_write() { ev_io_start(loop_, &wev_); }
 
+bool Handler::draining() const { return draining_; }
+
 void Handler::start_draining_period() {
+  draining_ = true;
+
+  ev_timer_stop(loop_, &rttimer_);
   ev_io_stop(loop_, &wev_);
 
-  ev_set_cb(&timer_, close_waitcb);
   timer_.repeat =
       static_cast<ev_tstamp>(ngtcp2_conn_get_pto(conn_)) / NGTCP2_SECONDS * 3;
   ev_timer_again(loop_, &timer_);
@@ -1233,14 +1261,13 @@ void Handler::start_draining_period() {
 }
 
 int Handler::start_closing_period() {
-  if (!conn_ || ngtcp2_conn_is_in_closing_period(conn_) ||
-      ngtcp2_conn_is_in_draining_period(conn_)) {
+  if (!conn_ || ngtcp2_conn_is_in_closing_period(conn_)) {
     return 0;
   }
 
+  ev_timer_stop(loop_, &rttimer_);
   ev_io_stop(loop_, &wev_);
 
-  ev_set_cb(&timer_, close_waitcb);
   timer_.repeat =
       static_cast<ev_tstamp>(ngtcp2_conn_get_pto(conn_)) / NGTCP2_SECONDS * 3;
   ev_timer_again(loop_, &timer_);
@@ -1257,11 +1284,11 @@ int Handler::start_closing_period() {
   ngtcp2_path_storage_zero(&ps);
 
   ngtcp2_pkt_info pi;
-  auto n = ngtcp2_conn_write_connection_close(
+  auto n = ngtcp2_conn_write_connection_close2(
       conn_, &ps.path, &pi, conn_closebuf_->wpos(), conn_closebuf_->left(),
       &last_error_, util::timestamp(loop_));
   if (n < 0) {
-    std::cerr << "ngtcp2_conn_write_connection_close: " << ngtcp2_strerror(n)
+    std::cerr << "ngtcp2_conn_write_connection_close2: " << ngtcp2_strerror(n)
               << std::endl;
     return -1;
   }
@@ -1276,17 +1303,8 @@ int Handler::start_closing_period() {
 }
 
 int Handler::handle_error() {
-  if (last_error_.type ==
-      NGTCP2_CONNECTION_CLOSE_ERROR_CODE_TYPE_TRANSPORT_IDLE_CLOSE) {
-    return -1;
-  }
-
   if (start_closing_period() != 0) {
     return -1;
-  }
-
-  if (ngtcp2_conn_is_in_draining_period(conn_)) {
-    return NETWORK_ERR_CLOSE_WAIT;
   }
 
   if (auto rv = send_conn_close(); rv != NETWORK_ERR_OK) {
@@ -1303,7 +1321,6 @@ int Handler::send_conn_close() {
 
   assert(conn_closebuf_ && conn_closebuf_->size());
   assert(conn_);
-  assert(!ngtcp2_conn_is_in_draining_period(conn_));
 
   auto path = ngtcp2_conn_get_path(conn_);
 
@@ -1312,28 +1329,17 @@ int Handler::send_conn_close() {
       /* ecn = */ 0, conn_closebuf_->rpos(), conn_closebuf_->size(), 0);
 }
 
-void Handler::update_timer() {
+void Handler::schedule_retransmit() {
   auto expiry = ngtcp2_conn_get_expiry(conn_);
   auto now = util::timestamp(loop_);
-
-  if (expiry <= now) {
-    if (!config.quiet) {
-      auto t = static_cast<ev_tstamp>(now - expiry) / NGTCP2_SECONDS;
-      std::cerr << "Timer has already expired: " << t << "s" << std::endl;
-    }
-
-    ev_feed_event(loop_, &timer_, EV_TIMER);
-
-    return;
-  }
-
-  auto t = static_cast<ev_tstamp>(expiry - now) / NGTCP2_SECONDS;
+  auto t = expiry < now ? 1e-9
+                        : static_cast<ev_tstamp>(expiry - now) / NGTCP2_SECONDS;
   if (!config.quiet) {
     std::cerr << "Set timer=" << std::fixed << t << "s" << std::defaultfloat
               << std::endl;
   }
-  timer_.repeat = t;
-  ev_timer_again(loop_, &timer_);
+  rttimer_.repeat = t;
+  ev_timer_again(loop_, &rttimer_);
 }
 
 namespace {
@@ -1597,8 +1603,6 @@ int create_sock(Address &local_addr, const char *addr, const char *port,
   }
 
   fd_set_recv_ecn(fd, rp->ai_family);
-  fd_set_ip_mtu_discover(fd, rp->ai_family);
-  fd_set_ip_dontfrag(fd, family);
 
   socklen_t len = sizeof(local_addr.su.storage);
   if (getsockname(fd, &local_addr.su.sa, &len) == -1) {
@@ -1676,8 +1680,6 @@ int add_endpoint(std::vector<Endpoint> &endpoints, const Address &addr) {
   }
 
   fd_set_recv_ecn(fd, addr.su.sa.sa_family);
-  fd_set_ip_mtu_discover(fd, addr.su.sa.sa_family);
-  fd_set_ip_dontfrag(fd, addr.su.sa.sa_family);
 
   endpoints.emplace_back(Endpoint{});
   auto &ep = endpoints.back();
@@ -1822,6 +1824,15 @@ int Server::on_read(Endpoint &ep) {
       case NGTCP2_ERR_RETRY:
         send_retry(&hd, ep, *local_addr, &su.sa, msg.msg_namelen, nread * 3);
         continue;
+      case NGTCP2_ERR_VERSION_NEGOTIATION:
+        if (!config.quiet) {
+          std::cerr << "Unsupported version: Send Version Negotiation"
+                    << std::endl;
+        }
+        send_version_negotiation(hd.version, hd.scid.data, hd.scid.datalen,
+                                 hd.dcid.data, hd.dcid.datalen, ep, *local_addr,
+                                 &su.sa, msg.msg_namelen);
+        continue;
       default:
         if (!config.quiet) {
           std::cerr << "Unexpected packet received: length=" << nread
@@ -1932,8 +1943,7 @@ int Server::on_read(Endpoint &ep) {
     }
 
     auto h = (*handler_it).second;
-    auto conn = h->conn();
-    if (ngtcp2_conn_is_in_closing_period(conn)) {
+    if (ngtcp2_conn_is_in_closing_period(h->conn())) {
       // TODO do exponential backoff.
       switch (h->send_conn_close()) {
       case 0:
@@ -1943,7 +1953,7 @@ int Server::on_read(Endpoint &ep) {
       }
       continue;
     }
-    if (ngtcp2_conn_is_in_draining_period(conn)) {
+    if (h->draining()) {
       continue;
     }
 
@@ -2564,23 +2574,6 @@ Options:
               Set the QUIC handshake timeout.
               Default: )"
             << util::format_duration(config.handshake_timeout) << R"(
-  --preferred-versions=<HEX>[[,<HEX>]...]
-              Specify  QUIC versions  in hex  string in  the order  of
-              preference.  Server negotiates one  of those versions if
-              client  initially  selects  a  less  preferred  version.
-              These versions must be  supported by libngtcp2.  Instead
-              of  specifying hex  string,  there  are special  aliases
-              available:  "v1"   indicates  QUIC  v1,   and  "v2draft"
-              indicates QUIC v2 draft.
-  --other-versions=<HEX>[[,<HEX>]...]
-              Specify QUIC  versions in  hex string  that are  sent in
-              other_versions  field  of version_information  transport
-              parameter.  This list can include a version which is not
-              supported  by  libngtcp2.   Instead  of  specifying  hex
-              string,  there  are   special  aliases  available:  "v1"
-              indicates  QUIC  v1,  and "v2draft"  indicates  QUIC  v2
-              draft.
-  --no-pmtud  Disables Path MTU Discovery.
   -h, --help  Display this help and exit.
 
 ---
@@ -2635,9 +2628,6 @@ int main(int argc, char **argv) {
         {"send-trailers", no_argument, &flag, 22},
         {"max-gso-dgrams", required_argument, &flag, 25},
         {"handshake-timeout", required_argument, &flag, 26},
-        {"preferred-versions", required_argument, &flag, 27},
-        {"other-versions", required_argument, &flag, 28},
-        {"no-pmtud", no_argument, &flag, 29},
         {nullptr, 0, nullptr, 0}};
 
     auto optidx = 0;
@@ -2873,52 +2863,6 @@ int main(int argc, char **argv) {
         } else {
           config.handshake_timeout = *t;
         }
-        break;
-      case 27: {
-        // --preferred-versions
-        auto l = util::split_str(optarg);
-        config.preferred_versions.resize(l.size());
-        auto it = std::begin(config.preferred_versions);
-        for (const auto &k : l) {
-          if (k == "v1") {
-            *it++ = NGTCP2_PROTO_VER_V1;
-            continue;
-          }
-          if (k == "v2draft") {
-            *it++ = NGTCP2_PROTO_VER_V2_DRAFT;
-            continue;
-          }
-          auto v = strtol(k.c_str(), nullptr, 16);
-          if (!ngtcp2_is_supported_version(v)) {
-            std::cerr << "preferred-versions: version not supported: " << k
-                      << std::endl;
-            exit(EXIT_FAILURE);
-          }
-          *it++ = v;
-        }
-        break;
-      }
-      case 28: {
-        // --other-versions
-        auto l = util::split_str(optarg);
-        config.other_versions.resize(l.size());
-        auto it = std::begin(config.other_versions);
-        for (const auto &v : l) {
-          if (v == "v1") {
-            *it++ = NGTCP2_PROTO_VER_V1;
-            continue;
-          }
-          if (v == "v2draft") {
-            *it++ = NGTCP2_PROTO_VER_V2_DRAFT;
-            continue;
-          }
-          *it++ = strtol(v.c_str(), nullptr, 16);
-        }
-        break;
-      }
-      case 29:
-        // --no-pmtud
-        config.no_pmtud = true;
         break;
       }
       break;

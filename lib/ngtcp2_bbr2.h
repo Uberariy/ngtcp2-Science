@@ -134,14 +134,24 @@ typedef struct ngtcp2_bbr2_cc {
   int packet_conservation;
   uint64_t max_inflight;
   ngtcp2_tstamp congestion_recovery_start_ts;
-  uint64_t congestion_recovery_next_round_delivered;
 
   uint64_t prior_inflight_lo;
   uint64_t prior_inflight_hi;
   uint64_t prior_bw_lo;
 
+
   int forecast_enter_flag;
   float ultra_loss;
+
+  // These are InOpSy parameters to control BBRv2 constants.
+  // Important to repeat them here, because not all function have
+  // access to cstat.
+  uint64_t bbr2_loss_tresh_numer;
+  uint64_t bbr2_loss_tresh_denom;
+  uint64_t bbr2_beta_numer;
+  uint64_t bbr2_beta_denom;
+  double bbr2_probe_rtt_cwnd_gain;
+  ngtcp2_duration bbr2_probe_rtt_duration;
 } ngtcp2_bbr2_cc;
 
 int ngtcp2_cc_bbr2_cc_init(ngtcp2_cc *cc, ngtcp2_log *log,
