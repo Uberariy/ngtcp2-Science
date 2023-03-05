@@ -145,10 +145,11 @@ if __name__ == "__main__":
 def explore_cong_window_in_one_dot(df_dot, dot, channel_features):
     fig, axes = plt.subplots(4, 1, figsize=(8, 17))
     fig.suptitle('Dependencies between BBR Congestion Window and features in dot: [' + str(dot) + '].')
-    sns.lineplot(ax=axes[0],data=df_dot, x="Preset Congestion Window (bytes)", y=f"Sender Speed (Kbit/s)", ci=70)
-    sns.lineplot(ax=axes[1],data=df_dot, x="Preset Congestion Window (bytes)", y=f"Sender lost data to data sent (%)", ci=70)
-    sns.lineplot(ax=axes[2],data=df_dot, x="Preset Congestion Window (bytes)", y=f"Sender RTT (ms)", ci=70)
-    sns.lineplot(ax=axes[3],data=df_dot, x="Preset Congestion Window (bytes)", y=f"Experiment duration (sec)", ci=70)
+    sns.lineplot(ax=axes[0],data=df_dot.loc[df["Preset Congestion Window (bytes)"] < 2000000], x="Preset Congestion Window (bytes)", y=f"Sender Speed (Kbit/s)", ci=70)
+    # sns.lineplot(ax=axes[1],data=df_dot, x="Preset Congestion Window (bytes)", y=f"Sender lost data to data inflight (%)", ci=70)
+    sns.lineplot(ax=axes[1],data=df_dot.loc[df["Preset Congestion Window (bytes)"] < 2000000], x="Preset Congestion Window (bytes)", y=f"Sender lost data to data sent (%)", ci=70)
+    sns.lineplot(ax=axes[2],data=df_dot.loc[df["Preset Congestion Window (bytes)"] < 2000000], x="Preset Congestion Window (bytes)", y=f"Sender RTT (ms)", ci=70)
+    sns.lineplot(ax=axes[3],data=df_dot.loc[df["Preset Congestion Window (bytes)"] < 2000000], x="Preset Congestion Window (bytes)", y=f"Experiment duration (sec)", ci=70)
 
 if __name__ == "__main__":
     channel_features = ["Congestion Controller", "Channel RTT (ms)", 'Channel Loss (%)', "Channel BW (Kbit/s)", "Channel Jitter (ms)"]
@@ -165,4 +166,6 @@ if __name__ == "__main__":
 
 # %%
 df.loc[df["Sender lost data to data sent (%)"] > 100]
+# %%
+df
 # %%
