@@ -22,7 +22,6 @@ import json
 import itertools
 import signal
 import scipy
-from displayresults import get_data_columns
 from collections import defaultdict
 # from pure_sklearn.map import convert_estimator
 
@@ -41,11 +40,11 @@ import time
 '''Define pathes and general settings'''
 
 '''Xlsx file to parse data from'''
-xlsx_df_source = "cc_perf_tests/RENO_CUBIC_BBR2_mean_deviation_ML_v4.1.xlsx"
+xlsx_df_source = "cc_perf_tests/optimal_speed_ML_v1.xlsx"
 '''Path, where to save ml cross val results'''
-cc_dir = "cc_ml/1task_november_start"
+cc_dir = "cc_ml/march_start"
 '''Filenames with ml results'''
-ml_result_names = ['ml5y_mean_experiment_Mon_Dec_19_13.16.41_2022']
+ml_result_names = ['']
 sns.set_theme(style="whitegrid")
 
 # %%
@@ -58,169 +57,53 @@ def importdf2(path):
     columns = next(ws.values)[0:]
     df = pd.DataFrame(ws.values, columns=columns)
     df = df.iloc[1:, 1:]
-    df = df.drop(['Channel Jitter (ms)'], axis=1)
-    return df
-
-def importdf():
-    '''Import data from xlsxes with these specific three algos'''
-    algos = ['BBR2', 'CUBIC', 'RENO']
-    frames = [0]*3
-    for idx, algo in enumerate(algos):
-        wb = openpyxl.load_workbook(f"cc_perf_tests_fix/{algo}_ML_v3.1.xlsx")
-        ws = wb["Sheet1"]
-        columns = next(ws.values)[0:]
-        frames[idx] = pd.DataFrame(ws.values, columns=columns)
-        frames[idx] = frames[idx].iloc[1:, 1:]
-    df = pd.concat(frames)
-    df = df.reset_index()
     return df
 
 df = importdf2(xlsx_df_source)
-df_estimated_bbr_params = importdf2(xlsx_df_source_estimated_bbr_params)
 
 '''If somebody asks...'''
-# df.describe()
+df.describe()
 # df['Channel Loss (%)'].unique()
 
-'''Check dataframes...'''
 # df
 # df_estimated_bbr_params
 
 # %%
-def understand_distribution(data):
-    '''Source: https://gist.github.com/mungoliabhishek/df69fc0f269eaefe59275fd4bd4cddd7'''
-    dist_names = ['weibull_min', 'norm', 'weibull_max', 'beta',
-                  'invgauss', 'uniform', 'gamma', 'expon',   
-                  'lognorm', 'pearson3', 'triang', 'laplace']
-    chi_square_statistics = []
-    # 11 equi-distant bins of observed Data 
-    percentile_bins = np.linspace(0,100,11)
-    percentile_cutoffs = np.percentile(data, percentile_bins)
-    observed_frequency, bins = (np.histogram(data, bins = percentile_cutoffs))
-    cum_observed_frequency = np.cumsum(observed_frequency)
-
-    # Loop through candidate distributions
-    for distribution in dist_names:
-        # Set up distribution and get fitted distribution parameters
-        dist = getattr(scipy.stats, distribution)
-        param = dist.fit(data)
-        print("{}\t{}".format(dist, param))
-
-        # Get expected counts in percentile bins
-        # cdf of fitted sistrinution across bins
-        cdf_fitted = dist.cdf(percentile_cutoffs, *param)
-        expected_frequency = []
-        for bin in range(len(percentile_bins) - 1):
-            expected_cdf_area = cdf_fitted[bin + 1] - cdf_fitted[bin]
-            expected_frequency.append(expected_cdf_area)
-
-        # Chi-square Statistics
-        expected_frequency = np.array(expected_frequency) * data.shape[0]
-        cum_expected_frequency = np.cumsum(expected_frequency)
-        ss = sum(((cum_expected_frequency - cum_observed_frequency) ** 2) / cum_expected_frequency)
-        chi_square_statistics.append(ss)
-
-    #Sort by minimum ch-square statistics
-    results = pd.DataFrame()
-    results['Distribution'] = dist_names
-    results['chi_square'] = chi_square_statistics
-    results.sort_values(['chi_square'], inplace=True)
-
-    print('\nDistributions listed by Betterment of fit:')
-    print('............................................')
-    print(results)
-
-def plot_distribution(data):
-    fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(10, 10))
-    fig.suptitle("Distribution overview")
-    ls = np.linspace(data.min(), data.max(), 101)
-    # Histogram Plot of Observed Data
-    axes[0, 0].hist(data, bins=50)
-    axes[0, 0].set_title("Mean speed samples quantity histogram")
-    axes[0, 0].set_xlabel('Mean speed position relatively to minimum and maximum speed')
-    axes[0, 0].set_ylabel('Experiments number')
-    axes[1, 0].plot(ls, scipy.stats.laplace.pdf(ls, 0.5035656774787212, 0.09874069646583596))
-    axes[1, 0].set_title("Laplace distribution probability density function")
-    axes[1, 0].set_xlabel('x')
-    axes[1, 0].set_ylabel('F(x)')
-    axes[1, 1].plot(ls, scipy.stats.norm.pdf(ls, 0.5093598981003012, 0.1235147677357962))
-    axes[1, 1].set_title("Normal distribution probability density function")
-    axes[1, 1].set_xlabel('x')
-    axes[1, 1].set_ylabel('F(x)')
-    fig.tight_layout()
-
-'''Define distribution of target variables'''
-df_distr = preprocessing.MinMaxScaler().fit_transform(df[['Sender Speed (Kbit/s)', 'MinimalSpeed', 'MaximalSpeed']].transpose())
-df_distr = pd.DataFrame({'Mean Speed': df_distr[0]})
-understand_distribution(df_distr['Mean Speed'])
-plot_distribution(df_distr['Mean Speed'])
-
-# %%
 '''Preprocessing'''
-def preprocess(df, encoder='one_hot_encoder'):
+def preprocess(df):
     '''Convert data types'''
-    col = get_data_columns(speed=False, formulas=False)
+    col = list(df.columns)
 
     '''Remove columns, that we don't need for learning'''
+    col.remove('Congestion Controller')
     col.remove('Channel Jitter (ms)')
-
-    '''Add new statistical columns'''
-    col.append('MinimalSpeed')
-    col.append('MaximalSpeed')
-    col.append('Deviation')
-    col.append('Speed deviation percent (%)')
+    col.remove('Optimal Speed (Kbit/s)')
+    col.remove('Estimation iterations number')
 
     '''Float64'''
     d = dict()
     for i in col:
         d[i] = 'float64'
 
-    '''Categorial'''
-    d['Congestion Controller'] = 'str'
-
     df = df.astype(d)
 
-    if (encoder == 'one_hot_encoder'):
-        '''One hot encoder (This way of encoding performs well)'''
-        '''(As some algorithms, that we want to test do not support categorial features, we want to use encoders)'''
-        algo_df = pd.DataFrame(df, columns=['Congestion Controller'])
-        dum_df = pd.get_dummies(algo_df, columns=["Congestion Controller"], prefix=["CC_is"] )
-        algo_df = algo_df.join(dum_df)
-        df = pd.concat([dum_df, df.iloc[:, 1:]], axis=1, join='inner')
+    col.remove('Optimal CWND (bytes)')
+    X = pd.DataFrame(df, columns=col)
+    y = df['Optimal CWND (bytes)']
+    return X, y
 
-        # scaler = preprocessing.MinMaxScaler()
-        # df[df.columns] = scaler.fit_transform(df[df.columns])
-
-        X = pd.DataFrame(df, columns = ["CC_is_BBR2", "CC_is_CUBIC", "CC_is_RENO", "Channel RTT (ms)", 'Channel Loss (%)', "Channel BW (Kbit/s)"])
-    elif (encoder == 'label_encoder'):
-        df["Congestion Controller"] = df["Congestion Controller"].apply(lambda x: list(df["Congestion Controller"].unique()).index(x) + 1)
-        X = pd.DataFrame(df, columns = ["Congestion Controller", "Channel RTT (ms)", 'Channel Loss (%)', "Channel BW (Kbit/s)"])
-        
-        pd.to_numeric(df['Congestion Controller'])
-    else:
-        pass
-    y1 = df["Sender Speed (Kbit/s)"]
-    y2 = df["MinimalSpeed"]
-    y3 = df["MaximalSpeed"]
-    return X, y1, y2, y3
-
-X_df, y1_df, y2_df, y3_df = preprocess(df, 'label_encoder')
-# X_testonly, y1_testonly, y2_testonly = preprocess(df_testonly)
+X_df, y_df = preprocess(df)
 
 # %%
 '''Split train & test'''
 random_state_ = 42
 
-X_cv, X_test, y1_cv, y1_test = model_selection.train_test_split(X_df, y1_df, test_size=0.05, random_state=random_state_, shuffle=True)
-X_cv, X_test, y2_cv, y2_test = model_selection.train_test_split(X_df, y2_df, test_size=0.05, random_state=random_state_, shuffle=True)
-X_cv, X_test, y3_cv, y3_test = model_selection.train_test_split(X_df, y3_df, test_size=0.05, random_state=random_state_, shuffle=True)
+X_cv, X_test, y_cv, y_test = model_selection.train_test_split(X_df, y_df, test_size=0.1, random_state=random_state_, shuffle=True)
 
 X = X_cv
-y1 = y1_cv
-y2 = y2_cv
-y3 = y3_cv
+y = y_cv
 
-print(X_cv.shape, X_test.shape, y1_cv.shape, y1_test.shape)
+print(X_cv.shape, X_test.shape, y_cv.shape, y_test.shape)
 
 # %%
 '''Clear results'''
@@ -417,8 +300,8 @@ conclude_and_save(res_list, total_time)
 # %%
 '''Sklearn Tree'''
 paramGrid = {
-    'n_estimators': [int(i) for i in list(np.random.uniform(1, 450, 20))],
-    'max_depth': [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+    'n_estimators': [int(i) for i in list(np.random.uniform(1, 450, 10))],
+    'max_depth': [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
     'max_features': ['auto', 'sqrt'],
     'min_samples_leaf': [1, 2, 4, 8],
     'min_samples_split': [2, 5, 10]
@@ -428,7 +311,7 @@ def Sklearn_model(ijk):
     return TransformedTargetRegressor(regressor=ensemble.RandomForestRegressor(**ijk),
                                       transformer=preprocessing.MinMaxScaler())
 
-res_list, total_time = cross_val(X, y1, paramGrid, Sklearn_model, 'Sklearn_y1', 400, timeConstraint=30)
+res_list, total_time = cross_val(X, y, paramGrid, Sklearn_model, 'Sklearn_y1', 400, timeConstraint=30)
 
 # %%
 conclude_and_save(res_list, total_time)
@@ -445,7 +328,7 @@ paramGrid = {
 def Sklearn_Lasso_model(ijk):
     return Lasso(**ijk)
 
-res_list, total_time = cross_val(X, y3, paramGrid, Sklearn_Lasso_model, 'Sklearn Lasso')
+res_list, total_time = cross_val(X, y, paramGrid, Sklearn_Lasso_model, 'Sklearn Lasso')
 
 # %%
 # conclude_and_save(res_list, total_time)
@@ -462,7 +345,7 @@ paramGrid = {
 def Sklearn_Ridge_model(ijk):
     return Ridge(**ijk)
 
-res_list, total_time = cross_val(X, y3, paramGrid, Sklearn_Ridge_model, 'Sklearn Ridge')
+res_list, total_time = cross_val(X, y, paramGrid, Sklearn_Ridge_model, 'Sklearn Ridge')
 
 # %%
 conclude_and_save(res_list, total_time)
@@ -791,8 +674,7 @@ def preprocess_bbr_parameters(trusted_models, estimated_bbr_params_df, ensemble=
     u4_df = df["BBR Probe RTT Duration"]
     return W_df, u1_df, u2_df, u3_df, u4_df
 
-degree_const = 3
-def X_poly(X):
+def X_poly(X, degree_const = 3):
     polynomial_features = PolynomialFeatures(degree=degree_const)
     return polynomial_features.fit_transform(X)
 
@@ -851,10 +733,10 @@ manual_invsee_results(target_type_str[0], y1_test, predictions, {"Negative error
 
 # %%
 '''Do we want to handle more experiments for new input samples?'''
-if (False):
+if (True):
     train_size_plot(TransformedTargetRegressor(regressor=LGBMRegressor(),
-                                            transformer=preprocessing.MinMaxScaler()), 
-                                            X, y1, negative_error_percent) 
+                                            transformer=preprocessing.MinMaxScaler()),
+                                            X, y, negative_error_percent) 
 
 # %%
 '''BBR Parameters Calculation: Compute parameter upgrade proficiency'''
@@ -890,25 +772,37 @@ train_size_plot(XGBRegressor(), W_cv, u3_cv)
 W_cv
 # %%
 '''Try...'''
+def X_custom(X, degree_const=3):
+    def f1(a):
+        return 1 / (a + 1)
+    X_poly_tmp = X_poly(np.concatenate((X, np.vectorize(f1)(X)), axis=1), degree_const)
+    functions = [
+        np.log,
+    ]
+    return np.concatenate((X_poly_tmp, *[f(X_poly_tmp) for f in functions]), axis=1)
 
 '''Poly'''
-def try_regressor(degree):
-    polynomial_features = PolynomialFeatures(degree=degree)
-    X_cv_poly = polynomial_features.fit_transform(X_cv)
-    X_test_poly = polynomial_features.fit_transform(X_test)
+def try_regressor(X, y, X_test, y_test, degree):
+    X_cv_poly = X_poly(X, degree_const=degree)
+    X_test_poly = X_poly(X_test, degree_const=degree)
 
-    clf = XGBRegressor(max_depth=12, learning_rate=0.06, n_estimators=1650)
-    clf = clf.fit(X_cv_poly, y1)
+    clf = Lasso(alpha = 18000, selection = 'random', tol = 3*1e-3, max_iter = 152000, warm_start = True, precompute = True) # 
+    # clf = Lasso(alpha = 18000, selection = 'random', tol = 3*1e-3, max_iter = 152000, warm_start = True, precompute = True) # -3.973408981892189
+    # clf = Ridge(alpha = 3200, tol = 10000, max_iter = 1020, solver='cholesky') # -3.1908943223704984
+    clf = clf.fit(X_cv_poly, y)
 
-    # plt.figure(figsize=(14,10))
-    # tree.plot_tree(clf, fontsize=10)
+    '''Trying to remove small weights - does not help'''
+    # clf.coef_[(clf.coef_*clf.coef_ < 1e-30)] = 0 
+
+    '''See coefficients'''
+    print(clf.coef_)
 
     '''MSE Results'''
     y_pred = clf.predict(X_test_poly)
-    # qual = metrics.mean_squared_error(y1_test, y_pred)
-    return manual_invsee_results(target_type_str[0], y1_test, y_pred, metrics={"Negative error percent:": negative_error_percent, "R2 score:": metrics.r2_score})
+    print("Features:", len(clf.coef_), "Nonzero:", np.count_nonzero(clf.coef_))
+    return negative_error_percent(y_test, y_pred)
 
 '''Try'''
-try_regressor(degree=4)
+try_regressor(X, y, X_test, y_test, degree=4)
 
 # %%

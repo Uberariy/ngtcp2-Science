@@ -151,13 +151,15 @@ def get_data_yaml_optimal(paths):
                 data_sample.append(theor_jitt)
                 estimated_opt_speed = convert_speed_to_kbit(datadict['estimated_opt_speed'])
                 data_sample.append(estimated_opt_speed)
+                opt_cwnd = datadict['estimated_opt_cwnd']
+                data_sample.append(opt_cwnd)
                 res_nfev = datadict['res_nfev']
                 data_sample.append(res_nfev)
         
                 data.append(data_sample)
 
     col = ["Congestion Controller", "Channel RTT (ms)", "Channel Loss (%)", "Channel BW (Kbit/s)",
-           "Channel Jitter (ms)", "Optimal Speed (Kbit/s)", "Estimation iterations number"]
+           "Channel Jitter (ms)", "Optimal Speed (Kbit/s)", "Optimal CWND (bytes)", "Estimation iterations number"]
 
     return pd.DataFrame(data, columns=col)
 
@@ -235,11 +237,11 @@ if __name__ == "__main__":
         print(f"Current task/format is {data_format_type} => skipping")
 
 # %%
-df.loc[df["Sender lost data to data sent (%)"] > 100]
-# %%
-df
-# %%
-data
+'''Correlation examination 1'''
+if __name__ == "__main__":
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(data.corr(method='spearman'), annot=True)
+
 # %%
 df
 # %%
