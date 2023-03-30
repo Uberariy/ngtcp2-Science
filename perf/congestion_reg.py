@@ -803,6 +803,9 @@ def try_regressor(X, y, X_test, y_test, degree):
     return negative_error_percent(y_test, y_pred)
 
 '''Try'''
-try_regressor(X, y, X_test, y_test, degree=4)
+try_regressor(X[['Channel RTT (ms)', 'Channel BW (Kbit/s)']], y, X_test[['Channel RTT (ms)', 'Channel BW (Kbit/s)']], y_test, degree=4)
+# try_regressor(X, y, X_test, y_test, degree=4)
+
+# %%
 
 # %%

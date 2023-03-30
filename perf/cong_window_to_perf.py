@@ -240,8 +240,14 @@ if __name__ == "__main__":
 '''Correlation examination 1'''
 if __name__ == "__main__":
     plt.figure(figsize=(10, 8))
-    sns.heatmap(data.corr(method='spearman'), annot=True)
+    data_tmp = data
+    data_tmp['BDP'] = data_tmp['Channel BW (Kbit/s)'] * data_tmp['Channel RTT (ms)']
+    sns.heatmap(data_tmp.corr(method='spearman'), annot=True)
+
+    data_tmp['ratio'] = data_tmp['Optimal CWND (bytes)'] / data_tmp['BDP']
+    data_tmp.describe()
 
 # %%
-df
+data_tmp.loc[data_tmp['ratio'] < 0.1]
+
 # %%
