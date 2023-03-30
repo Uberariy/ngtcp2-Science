@@ -232,7 +232,7 @@ import openpyxl
 if __name__ == "__main__":
     '''Save results in a xlsx'''
     if data_format_type in [2]:
-        data.to_excel(f"{path_savexlsxs}/optimal_speed_ML_v1.xlsx")
+        data.to_excel(f"{path_savexlsxs}/optimal_speed_ML_v2.xlsx")
     else:
         print(f"Current task/format is {data_format_type} => skipping")
 

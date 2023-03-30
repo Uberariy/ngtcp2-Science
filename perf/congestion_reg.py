@@ -40,9 +40,9 @@ import time
 '''Define pathes and general settings'''
 
 '''Xlsx file to parse data from'''
-xlsx_df_source = "cc_perf_tests/optimal_speed_ML_v1.xlsx"
+xlsx_df_source = "cc_perf_tests/optimal_speed_ML_v2.xlsx"
 '''Path, where to save ml cross val results'''
-cc_dir = "cc_ml/march_start"
+cc_dir = "cc_ml_diploma/"
 '''Filenames with ml results'''
 ml_result_names = ['']
 sns.set_theme(style="whitegrid")
@@ -77,7 +77,6 @@ def preprocess(df):
     '''Remove columns, that we don't need for learning'''
     col.remove('Congestion Controller')
     col.remove('Channel Jitter (ms)')
-    col.remove('Optimal Speed (Kbit/s)')
     col.remove('Estimation iterations number')
 
     '''Float64'''
@@ -88,8 +87,14 @@ def preprocess(df):
     df = df.astype(d)
 
     col.remove('Optimal CWND (bytes)')
+
     X = pd.DataFrame(df, columns=col)
     y = df['Optimal CWND (bytes)']
+
+    '''Try scaler'''
+    scaler = preprocessing.StandardScaler()
+    scaler.fit(X)
+    X = scaler.transform(X)
     return X, y
 
 X_df, y_df = preprocess(df)
@@ -112,11 +117,11 @@ res_list = list()
 # %%
 
 '''Print cross val results and save them in 'cc_dir' '''
-def conclude_and_save(res_list, total_time, finalists_numb=10):
+def conclude_and_save(res_list, total_time, lib_name="", finalists_numb=10):
     print(f'\nTotal {total_time} taken.')
     res_list = sorted(res_list, key=lambda x: -x['test_NMAE'])
     print(f"\nTop {finalists_numb} models: ", res_list[:10])
-    fname = f'{cc_dir}/ml5y_mean_experiment_'+'.'.join('_'.join(time.asctime().split()).split(':'))
+    fname = f'{cc_dir}/ml_cwnd_'+lib_name+'_'+'.'.join('_'.join(time.asctime().split()).split(':'))
     with open(fname, 'w') as f:
         json.dump(res_list, f, indent = 6)
     print("\nName: ", fname)
@@ -237,8 +242,8 @@ def cross_val(X, y, paramGrid, modelF, libName, expConstraint=10000, timeConstra
 # %%
 '''LightGBM'''
 paramGrid = {
-    'learning_rate': list(np.random.uniform(0.001, 0.4, 50)),
-    'max_depth': [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+    'learning_rate': list(np.random.uniform(0.01, 0.1, 20)) + list(np.random.uniform(0.001, 0.01, 20)) + list(np.random.uniform(0.0001, 0.001, 20)),
+    'max_depth': [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
     'n_estimators': [int(i) for i in list(np.random.uniform(10, 2000, 50))],
     'num_leaves': [2, 3, 4, 5, 6, 7, 8, 9]
 }
@@ -247,27 +252,28 @@ def LGBMRegressor_model(ijk):
     return TransformedTargetRegressor(regressor=LGBMRegressor(**ijk),
                                       transformer = preprocessing.MinMaxScaler())
 
-res_list, total_time = cross_val(X, y2, paramGrid, LGBMRegressor_model, 'LightGBM_y2', 500, timeConstraint=30)
+res_list, total_time = cross_val(X, y, paramGrid, LGBMRegressor_model, 'LightGBM', 500, timeConstraint=30)
 
 # %%
-conclude_and_save(res_list, total_time)
+conclude_and_save(res_list, total_time, lib_name='LightGBM')
 '''Optional: Run   res_list = list()'''
 
 # %%
 '''CatBoost'''
 paramGrid = {
-    'num_trees': [int(i) for i in list(np.random.uniform(100, 1000, 10)) + list(np.random.uniform(1000, 3000, 20))],
+    'num_trees': list(np.random.uniform(2, 100, 30)) + list(np.random.uniform(100, 1000, 10)) + list(np.random.uniform(1000, 3000, 20)),
     'depth': [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
-    'l2_leaf_reg': [0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+    'l2_leaf_reg': [0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+    'silent': [True]
 }
 
 def CatBoost_model(ijk):
-    return CatBoostRegressor(**ijk, silent=True)
+    return CatBoostRegressor(**ijk)
 
-res_list, total_time = cross_val(X, y2, paramGrid, CatBoost_model, 'CatBoost', 500, timeConstraint=30)
+res_list, total_time = cross_val(X, y, paramGrid, CatBoost_model, 'CatBoost', 500, timeConstraint=30)
 
 # %%
-conclude_and_save(res_list, total_time)
+conclude_and_save(res_list, total_time, lib_name='CatBoost')
 '''Optional: Run   res_list = list()'''
 
 # %%
@@ -291,18 +297,19 @@ def XGBoost_model(ijk):
     return TransformedTargetRegressor(regressor=XGBRegressor(**ijk),
                                       transformer = preprocessing.MinMaxScaler())
 
-res_list, total_time = cross_val(X, y1, paramGrid, XGBoost_model, 'XGBoost', 200, timeConstraint=30)
+res_list, total_time = cross_val(X, y, paramGrid, XGBoost_model, 'XGBoost', 200, timeConstraint=30)
 
 # %%
-conclude_and_save(res_list, total_time)
+conclude_and_save(res_list, total_time, lib_name='XGBoost')
 '''Optional: Run   res_list = list()'''
+res_list = list()
 
 # %%
 '''Sklearn Tree'''
 paramGrid = {
-    'n_estimators': [int(i) for i in list(np.random.uniform(1, 450, 10))],
-    'max_depth': [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
-    'max_features': ['auto', 'sqrt'],
+    'n_estimators': [int(i) for i in list(np.random.uniform(1, 650, 50))],
+    'max_depth': [11, 12, 13, 14, 15, 16, 17],
+    'max_features': [1.0, 'sqrt'],
     'min_samples_leaf': [1, 2, 4, 8],
     'min_samples_split': [2, 5, 10]
 }
@@ -311,10 +318,10 @@ def Sklearn_model(ijk):
     return TransformedTargetRegressor(regressor=ensemble.RandomForestRegressor(**ijk),
                                       transformer=preprocessing.MinMaxScaler())
 
-res_list, total_time = cross_val(X, y, paramGrid, Sklearn_model, 'Sklearn_y1', 400, timeConstraint=30)
+res_list, total_time = cross_val(X, y, paramGrid, Sklearn_model, 'Sklearn', 400, timeConstraint=30)
 
 # %%
-conclude_and_save(res_list, total_time)
+conclude_and_save(res_list, total_time, lib_name='Sklearn')
 '''Optional: Run   res_list = list()'''
 res_list = list()
 
@@ -385,7 +392,7 @@ def plot_cross_val_rating(cc_dir, ml_result_names, main_metric="test_R2"):
             results += json.load(f)
 
     '''Pick a certain amount of best models, to place on a graph'''
-    best_models_amount = 200
+    best_models_amount = 50
     results = results[:best_models_amount]
     n = 2
     m = 3
@@ -401,12 +408,15 @@ def plot_cross_val_rating(cc_dir, ml_result_names, main_metric="test_R2"):
                 continue
             axes[i, j].set_title('Parameter ' + list(results[0].keys())[k])
             x_ = [p[list(results[0].keys())[k]] for p in results]
+            for idx, u in enumerate(x_):
+                if isinstance(u, str):
+                    x_[idx] = 0
             y_ = [p[main_metric] for p in results]
             x_name = "Parameter value"
             y_name = "Accuracy metric " + main_metric
             sns.scatterplot(ax=axes[i, j], data=pd.DataFrame({x_name: x_, y_name: y_}), x=x_name, y=y_name)
 
-plot_cross_val_rating(cc_dir, ml_result_names)
+plot_cross_val_rating(cc_dir, ['ml_cwnd_Sklearn_Tue_Mar_28_15.31.40_2023'])
 
 # %%
 '''Correlation betweeen chosen metrics'''
@@ -786,9 +796,9 @@ def try_regressor(X, y, X_test, y_test, degree):
     X_cv_poly = X_poly(X, degree_const=degree)
     X_test_poly = X_poly(X_test, degree_const=degree)
 
-    clf = Lasso(alpha = 18000, selection = 'random', tol = 3*1e-3, max_iter = 152000, warm_start = True, precompute = True) # 
-    # clf = Lasso(alpha = 18000, selection = 'random', tol = 3*1e-3, max_iter = 152000, warm_start = True, precompute = True) # -3.973408981892189
-    # clf = Ridge(alpha = 3200, tol = 10000, max_iter = 1020, solver='cholesky') # -3.1908943223704984
+    # clf = Lasso(alpha = 17000, selection = 'random', tol = 3*1e-4, max_iter = 10000, warm_start = True, precompute = True) # 
+    clf = Lasso(alpha = 8, selection = 'random', tol = 3*1e-4, max_iter = 252000, warm_start = True, precompute = True) # -3.973408981892189
+    # clf = Ridge(alpha = 4200, tol = 10000, max_iter = 1020, solver='cholesky') # -3.1908943223704984
     clf = clf.fit(X_cv_poly, y)
 
     '''Trying to remove small weights - does not help'''
@@ -799,13 +809,26 @@ def try_regressor(X, y, X_test, y_test, degree):
 
     '''MSE Results'''
     y_pred = clf.predict(X_test_poly)
+    nep = negative_error_percent(y_test, y_pred)
+    print(nep, "\n", pd.DataFrame({"test": y_test, "pred": y_pred}))
     print("Features:", len(clf.coef_), "Nonzero:", np.count_nonzero(clf.coef_))
-    return negative_error_percent(y_test, y_pred)
+    return nep
 
 '''Try'''
 try_regressor(X[['Channel RTT (ms)', 'Channel BW (Kbit/s)']], y, X_test[['Channel RTT (ms)', 'Channel BW (Kbit/s)']], y_test, degree=4)
 # try_regressor(X, y, X_test, y_test, degree=4)
 
 # %%
+
+# %%
+'''Try classic approaches'''
+def BDP(X):
+    return pd.DataFrame(X['Channel BW (Kbit/s)'] * X['Channel RTT (ms)'])
+
+def BBR_FORECAST_2022(X):
+    return pd.DataFrame(X['Channel BW (Kbit/s)'] * X['Channel RTT (ms)'] / (1 + X['Channel Loss (%)'] / (1 - X['Channel Loss (%)'])))
+
+# manual_train_test(Lasso(), BDP(X), y, BDP(X_test), y_test)
+manual_train_test(Lasso(), BBR_FORECAST_2022(X), y, BBR_FORECAST_2022(X_test), y_test)
 
 # %%
