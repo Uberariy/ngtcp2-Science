@@ -23,6 +23,8 @@ import itertools
 import signal
 import scipy
 from collections import defaultdict
+import pickle
+from pathlib import Path
 # from pure_sklearn.map import convert_estimator
 
 '''We are using this libraries, because they are observed in "SDTR: Soft Decision Tree Regressor for Tabular
@@ -45,6 +47,8 @@ xlsx_df_source = "cc_perf_tests/optimal_speed_ML_v2.xlsx"
 cc_dir = "cc_ml_diploma/"
 '''Filenames with ml results'''
 ml_result_names = ['']
+'''Path to save models'''
+path_to_save_ml_models = Path("../stand_support/models/")
 sns.set_theme(style="whitegrid")
 
 # %%
@@ -78,6 +82,7 @@ def preprocess(df):
     col.remove('Congestion Controller')
     col.remove('Channel Jitter (ms)')
     col.remove('Estimation iterations number')
+    col.remove('Optimal Speed (Kbit/s)')
 
     '''Float64'''
     d = dict()
@@ -92,16 +97,16 @@ def preprocess(df):
     y = df['Optimal CWND (bytes)']
 
     '''Try scaler'''
-    scaler = preprocessing.StandardScaler()
-    scaler.fit(X)
-    X = scaler.transform(X)
-    return X, y
+    # scaler = preprocessing.StandardScaler()
+    # scaler.fit(X)
+    # X = scaler.transform(X)
+    return pd.DataFrame(X, columns=col), y
 
 X_df, y_df = preprocess(df)
 
 # %%
 '''Split train & test'''
-random_state_ = 42
+random_state_ = 44
 
 X_cv, X_test, y_cv, y_test = model_selection.train_test_split(X_df, y_df, test_size=0.1, random_state=random_state_, shuffle=True)
 
@@ -139,12 +144,16 @@ def negative_mean_absolute_error(y_true, y_pred):
 
 def negative_error_percent(y_true, y_pred):
     '''Custom metric'''
-    res = -((y_true - y_pred) / y_true * 100).abs().mean()
+    # print("!!!", y_true, "!!!", y_pred)
+    y_true, y_pred = np.sort(np.array(y_true).ravel()), np.sort(np.array(y_pred).ravel())
+    # print("!!!", y_true, "!!!", y_pred)
+    res = - np.mean(np.abs((y_true - y_pred) / y_true * 100))
     return res
 
 def negative_error_percent_no_abs(y_true, y_pred):
     '''Custom metric. Differs from with abs version in aim to see, wherther we overstate or underestimate'''
-    res = -((y_true - y_pred) / y_true * 100).mean()
+    y_true, y_pred = np.sort(np.array(y_true).ravel()), np.sort(np.array(y_pred).ravel())
+    res = - np.mean((y_true - y_pred) / y_true * 100)
     return res
 
 '''Cross val'''
@@ -464,18 +473,27 @@ target_type_str = [
 alpha = 1
 
 '''Examine if results differ much'''
-def manual_invsee_results(target_str, y_test, y_pred, metrics={"Negative error percent:": negative_error_percent, "R2 score:": metrics.r2_score}):
+def manual_invsee_results(target_str, y_test, y_pred, metrics={"Negative error percent:": negative_error_percent, "The bias:": negative_error_percent_no_abs, "R2 score:": metrics.r2_score}, silent=False):
     results = y_test.to_frame().assign(Predicted=y_pred)
     # sorted_results = y_test.to_frame().assign(Predicted=y_pred).sort_values(by=target_str)
     results['Abs Error (%)'] = (results[target_str] - results['Predicted']) / results[target_str] * 100
+    # print("BIAS: |", results['Abs Error (%)'].mean(), "|")
     results['Squared Error'] = (results[target_str] - results['Predicted']) ** 2 / results[target_str] ** 2 * 100
     results.rename({'Predicted': 'Predicted value (Kbit/s)'}, inplace=True)
-    print("Metrics:") 
+    if not silent:
+        print("Metrics:") 
     metric_results = {key: metric(y_test, y_pred) for key, metric in metrics.items()}
+    bias, nep_metric = None, None
     for key, val in metric_results.items():
-        print(key, val)
-    print("\n", results.tail(10))
-    return results
+        if not silent:
+            print(key, val)
+        if key == "Negative error percent:":
+            nep_metric = val
+        elif key == "The bias:":
+            bias = val
+    if not silent:
+        print("\n", results.tail(10))
+    return results, bias, nep_metric # Return bias to calc
 
 '''Try to ensemble two plots, and see how they combine'''
 def model_2_ensemble_plot(y_pred1, y_pred2, y_test, metrics=[metrics.r2_score, negative_error_percent]):
@@ -686,59 +704,38 @@ def preprocess_bbr_parameters(trusted_models, estimated_bbr_params_df, ensemble=
 
 def X_poly(X, degree_const = 3):
     polynomial_features = PolynomialFeatures(degree=degree_const)
-    return polynomial_features.fit_transform(X)
+    res = polynomial_features.fit_transform(X)
+    # print(polynomial_features.powers_)
+    return res
 
 # %%
-'''Demonstration cell (best models based on cv with RMSE or R2SCORE metrics)'''
-best_models = {}
+'''Best model experiments and bias by multiple runs'''
+biases = []
+neps = []
 
-'''For y1 task: -4.960250716495482'''
-best_models[11] = XGBRegressor(max_depth=12, learning_rate=0.06, n_estimators=1650) #(max_depth=6, learning_rate=0.035, n_estimators=1184)
-best_models[12] = TransformedTargetRegressor(regressor=ensemble.RandomForestRegressor(n_estimators=320, max_depth=10, max_features='auto', min_samples_leaf=1, min_samples_split=2),
-                                         transformer=preprocessing.MinMaxScaler())
-best_models[13] = CatBoostRegressor(num_trees=1068, depth=9, l2_leaf_reg=0)
-# alpha1 = 0.35
-# beta1 = 
+runs_number = 1
 
-'''For y2 task: -8.719683381937244'''
-best_models[21] = XGBRegressor(max_depth=8, learning_rate=0.013, n_estimators=1100)
-best_models[22] = TransformedTargetRegressor(regressor=ensemble.RandomForestRegressor(n_estimators=167, max_depth=13, max_features='auto', min_samples_leaf=2, min_samples_split=2),
-                                         transformer=preprocessing.MinMaxScaler())
-best_models[23] = CatBoostRegressor(num_trees=1086, depth=8, l2_leaf_reg=4)
-# alpha2 =
-# beta2 = 
+for i in range(runs_number):
+    X_cv, X_test, y_cv, y_test = model_selection.train_test_split(X_df, y_df, test_size=0.1, shuffle=True)
 
-'''For y3 task: -6.9597026281023044'''
-best_models[31] = XGBRegressor(max_depth=7, learning_rate=0.063, n_estimators=2167)
-best_models[32] = TransformedTargetRegressor(regressor=ensemble.RandomForestRegressor(n_estimators=320, max_depth=10, max_features='auto', min_samples_leaf=1, min_samples_split=2),
-                                         transformer=preprocessing.MinMaxScaler())
-best_models[33] = CatBoostRegressor(num_trees=817, depth=9, l2_leaf_reg=0)
-# alpha3 =
-# beta3 = 
+    best_model = Lasso(alpha = 20000, selection = 'random', tol = 3*1e-5, max_iter = 160000, warm_start = True, precompute = True) # 0.15397035347669225 -2.078726559288437
+    # best_model = Ridge(alpha = 50, solver='cholesky') # -0.1247498447031332 -1.9871304715218807
+    degree = 7
+
+    X_cv_poly = X_poly(X, degree_const=degree)
+    X_test_poly = X_poly(X_test, degree_const=degree)
+
+    test_pred, test_score = manual_train_test(best_model, X_cv_poly, y, X_test_poly, y_test)
+    _, cur_nep, cur_bias = manual_invsee_results("Optimal CWND (bytes)", y_test, test_pred, {"Negative error percent:": negative_error_percent, "The bias:": negative_error_percent_no_abs, "R2 score:": metrics.r2_score}, silent=True)
+    
+    biases.append(cur_bias)
+    neps.append(cur_nep)
+
+print("\n", sum(neps)/len(neps), sum(biases)/len(biases))
 
 # %%
-'''Train all the best models'''
-test_pred = {}
-for key, model in best_models.items():
-    test_pred[key], test_score = manual_train_test(model, X, eval("y" + str(key)[0]), X_test, eval("y" + str(key)[0] + "_test"))
-    print("Best model ", key, " scores: ", test_score)
-
-# %%
-'''Get best alpha/betas'''
-model_3_ensemble_plot(test_pred[11], test_pred[12], test_pred[13], y1_test)
-model_3_ensemble_plot(test_pred[21], test_pred[22], test_pred[23], y2_test)
-model_3_ensemble_plot(test_pred[31], test_pred[32], test_pred[33], y3_test)
-
-# %%
-'''Measure predict time. '''
-if (False):
-    measure_time_best_models_no_ensemble(best_models, X_test)
-
-# %%
-'''Run ensemble'''
-predictions = net_speed_predict_ensemble(best_models, X_test, measuretime=True)
-manual_invsee_results(target_type_str[0], y1_test, predictions, {"Negative error percent:": negative_error_percent, "The bias:": negative_error_percent_no_abs, "R2 score:": metrics.r2_score})
-# print(metrics.r2_score(predictions, y1_test), negative_error_percent(predictions, y1_test))
+'''Save best models'''
+pickle.dump(best_model, open(path_to_save_ml_models / "poly_reg_lasso_degree_deg7.txt", 'wb'))
 
 
 # %%
@@ -748,38 +745,6 @@ if (True):
                                             transformer=preprocessing.MinMaxScaler()),
                                             X, y, negative_error_percent) 
 
-# %%
-'''BBR Parameters Calculation: Compute parameter upgrade proficiency'''
-W_df, u1_df, u2_df, u3_df, u4_df = preprocess_bbr_parameters(best_models, df_estimated_bbr_params, ensemble=True)
-
-W_cv, W_test, u1_cv, u1_test = model_selection.train_test_split(W_df, u1_df, test_size=0.15, random_state=random_state_, shuffle=True)
-W_cv, W_test, u2_cv, u2_test = model_selection.train_test_split(W_df, u2_df, test_size=0.15, random_state=random_state_, shuffle=True)
-W_cv, W_test, u3_cv, u3_test = model_selection.train_test_split(W_df, u3_df, test_size=0.15, random_state=random_state_, shuffle=True)
-W_cv, W_test, u4_cv, u4_test = model_selection.train_test_split(W_df, u4_df, test_size=0.15, random_state=random_state_, shuffle=True)
-
-# %%
-'''Use models to predict BBR parameters'''
-bbr_params_models = {}
-
-'''For each of 4 BBR parameter...'''
-bbr_params_models[11] = XGBRegressor()
-bbr_params_models[21] = XGBRegressor()
-bbr_params_models[31] = XGBRegressor()
-bbr_params_models[41] = XGBRegressor()
-
-# %%
-'''Train all the best models'''
-bbr_test_pred = {}
-for key, model in bbr_params_models.items():
-    bbr_test_pred[key], test_score = manual_train_test(model, W_cv, eval("u" + str(key)[0] + "_cv"), W_test, eval("u" + str(key)[0] + "_test"))
-    manual_invsee_results(eval("u" + str(key)[0] + "_test").name, eval("u" + str(key)[0] + "_test"), bbr_test_pred[key])
-    print("Best model ", key, " scores: ", test_score)
-
-# %%
-train_size_plot(XGBRegressor(), W_cv, u3_cv)
-
-# %%
-W_cv
 # %%
 '''Try...'''
 def X_custom(X, degree_const=3):
@@ -796,13 +761,13 @@ def try_regressor(X, y, X_test, y_test, degree):
     X_cv_poly = X_poly(X, degree_const=degree)
     X_test_poly = X_poly(X_test, degree_const=degree)
 
-    # clf = Lasso(alpha = 17000, selection = 'random', tol = 3*1e-4, max_iter = 10000, warm_start = True, precompute = True) # 
-    clf = Lasso(alpha = 8, selection = 'random', tol = 3*1e-4, max_iter = 252000, warm_start = True, precompute = True) # -3.973408981892189
-    # clf = Ridge(alpha = 4200, tol = 10000, max_iter = 1020, solver='cholesky') # -3.1908943223704984
+    clf = Lasso(alpha = 17000, selection = 'random', tol = 3*1e-4, max_iter = 30000, warm_start = True, precompute = True) # 
+    # clf = Lasso(alpha = 3908, selection = 'random', tol = 3*1e-5, max_iter = 520000, warm_start = True, precompute = True) # -3.973408981892189
+    # clf = Ridge(alpha = 0.07, tol = 10000, max_iter = 10200, solver='cholesky') # -2.3982246154979414, degree=7
     clf = clf.fit(X_cv_poly, y)
 
-    '''Trying to remove small weights - does not help'''
-    # clf.coef_[(clf.coef_*clf.coef_ < 1e-30)] = 0 
+    '''Trying to remove small weights - does help'''
+    # clf.coef_[(clf.coef_*clf.coef_ < 5e8)] = 0 
 
     '''See coefficients'''
     print(clf.coef_)
@@ -815,20 +780,70 @@ def try_regressor(X, y, X_test, y_test, degree):
     return nep
 
 '''Try'''
-try_regressor(X[['Channel RTT (ms)', 'Channel BW (Kbit/s)']], y, X_test[['Channel RTT (ms)', 'Channel BW (Kbit/s)']], y_test, degree=4)
-# try_regressor(X, y, X_test, y_test, degree=4)
+# try_regressor(X[['Channel RTT (ms)', 'Channel BW (Kbit/s)']], y, X_test[['Channel RTT (ms)', 'Channel BW (Kbit/s)']], y_test, degree=4)
+try_regressor(X, y, X_test, y_test, degree=7)
 
 # %%
+X
 
 # %%
 '''Try classic approaches'''
 def BDP(X):
-    return pd.DataFrame(X['Channel BW (Kbit/s)'] * X['Channel RTT (ms)'])
+    return pd.DataFrame(X['Channel BW (Kbit/s)'] * X['Channel RTT (ms)'] / 8, columns=["BDP"])
 
 def BBR_FORECAST_2022(X):
-    return pd.DataFrame(X['Channel BW (Kbit/s)'] * X['Channel RTT (ms)'] / (1 + X['Channel Loss (%)'] / (1 - X['Channel Loss (%)'])))
+    return pd.DataFrame(X['Channel BW (Kbit/s)'] * X['Channel RTT (ms)'] / 8 * 100 / (100 + X['Channel Loss (%)'] / (100 - X['Channel Loss (%)'])))
 
-# manual_train_test(Lasso(), BDP(X), y, BDP(X_test), y_test)
-manual_train_test(Lasso(), BBR_FORECAST_2022(X), y, BBR_FORECAST_2022(X_test), y_test)
+biases = []
+neps = []
+
+'''Best model experiments and bias by multiple runs'''
+runs_number = 40
+for i in range(runs_number):
+    X_cv, X_test, y_cv, y_test = model_selection.train_test_split(X_df, y_df, test_size=0.1, shuffle=True)
+
+    # y_pred_tmp = manual_train_test(Ridge(), BDP(X), y, BDP(X_test), y_test) # 5.199098635928246 -8.845153115373808
+    # _, cur_nep, cur_bias = manual_invsee_results("Optimal CWND (bytes)", y_test, y_pred_tmp[0])
+    _, cur_nep, cur_bias = manual_invsee_results("Optimal CWND (bytes)", y_test, BDP(X_test), silent=True) # -2.8089529091172727 -6.20016727310029
+
+    # y_pred_tmp = manual_train_test(Ridge(), BBR_FORECAST_2022(X), y, BBR_FORECAST_2022(X_test), y_test) # 5.785538055330505 -9.583897965352309
+    # _, cur_nep, cur_bias = manual_invsee_results("Optimal CWND (bytes)", y_test, y_pred_tmp[0])
+    # _, cur_nep, cur_bias = manual_invsee_results("Optimal CWND (bytes)", y_test, BBR_FORECAST_2022(X_test)) # -3.0237179236415557 -5.928357987302471
+
+    biases.append(cur_bias)
+    neps.append(cur_nep)
+
+print("\n", sum(neps)/len(neps), sum(biases)/len(biases))
+
+# %%
+degree=3, alpha = 3908
+[     0.         447643.34972128      0.         365321.910971
+      0.              0.         121873.5146077       0.
+      0.         -41989.40600171      0.              0.
+      0.              0.              0.         -38908.03063347
+      0.              0.              0.              0.        ]
+-5.7729229443728345 
+           test          pred
+526  1724334.0  1.713797e+06
+358   490332.0  5.198735e+05
+445   873535.0  8.996284e+05
+32    288769.0  3.444303e+05
+619   847167.0  8.794671e+05
+..         ...           ...
+483   896386.0  9.223765e+05
+306  2175322.0  2.028146e+06
+895   209667.0  1.823761e+05
+108   565332.0  6.838027e+05
+882   297558.0  2.905127e+05
+
+[103 rows x 2 columns]
+Features: 20 Nonzero: 5
+
+
+# %%
+print(X_test, y_test)
+
+# %%
+negative_error_percent_no_abs([100, 100], [90, 90])
 
 # %%
